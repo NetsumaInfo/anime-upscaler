@@ -2,6 +2,9 @@
 chcp 65001 >nul
 title 🎨 Installation - Anime Upscaler
 
+:: Change to script directory
+cd /d "%~dp0"
+
 echo.
 echo ╔══════════════════════════════════════════════════════════════════════╗
 echo ║            🎨 Anime Upscaler - Installation                          ║
