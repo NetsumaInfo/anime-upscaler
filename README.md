@@ -336,22 +336,39 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ### Modèles AI
 
-- **AnimeSharpV4** / **AnimeSharpV4-Fast** : [Kim2091](https://github.com/Kim2091/Kim2091-Models)
-- **Ani4VK-v2-Compact** : [Sirosky](https://github.com/Sirosky/Upscale-Hub)
+Tous les modèles sont fournis par leurs créateurs respectifs et soumis à leurs licences :
+
+#### [AnimeSharpV4](https://openmodeldb.info/models/2x-AnimeSharpV4) & [AnimeSharpV4-Fast](https://openmodeldb.info/models/2x-AnimeSharpV4-Fast-RCAN-PU)
+- **Auteur** : [Kim2091](https://github.com/Kim2091/Kim2091-Models)
+- **Licence** : CC-BY-4.0 (Attribution requise)
+- **Usage** : Commercial et non-commercial autorisés
+- **Source** : [Kim2091-Models Repository](https://github.com/Kim2091/Kim2091-Models)
+
+#### [Ani4VK-v2-Compact](https://openmodeldb.info/models/2x-Ani4VK-v2-Compact)
+- **Auteur** : [Sirosky](https://github.com/Sirosky)
+- **Licence** : CC-BY-NC-SA-4.0 (Attribution - Non Commercial - Share Alike)
+- **Usage** : Usage non-commercial uniquement, modifications autorisées si publiées sous même licence
+- **Source** : [Upscale-Hub Repository](https://github.com/Sirosky/Upscale-Hub)
+
+**⚠️ Important** : Les modèles ne sont PAS inclus dans ce dépôt. Ils sont automatiquement téléchargés depuis les sources officielles lors de la première utilisation. Respectez les conditions de licence de chaque modèle.
 
 ### Technologies
 
-- [PyTorch](https://pytorch.org/) - Deep Learning framework
-- [Gradio](https://gradio.app/) - Web UI framework
-- [Spandrel](https://github.com/chaiNNer-org/spandrel) - Universal model loader
-- [FFmpeg](https://ffmpeg.org/) - Video processing
+- [PyTorch](https://pytorch.org/) - Deep Learning framework (BSD License)
+- [Gradio](https://gradio.app/) - Web UI framework (Apache 2.0)
+- [Spandrel](https://github.com/chaiNNer-org/spandrel) - Universal model loader (MIT)
+- [FFmpeg](https://ffmpeg.org/) - Video processing (LGPL/GPL)
 - [OpenModelDB](https://openmodeldb.info/) - Model database
 
 ## 📄 License
 
-MIT License - Libre d'utilisation pour projets personnels et commerciaux.
+**Application Code** : MIT License - Libre d'utilisation pour projets personnels et commerciaux.
 
-**Note:** Les modèles AI peuvent avoir leurs propres licences (généralement CC-BY-NC-SA-4.0).
+**Modèles AI** : Chaque modèle possède sa propre licence (voir section Crédits ci-dessus). 
+- **AnimeSharpV4** : CC-BY-4.0 (Usage commercial autorisé avec attribution)
+- **Ani4VK-v2-Compact** : CC-BY-NC-SA-4.0 (Usage non-commercial uniquement)
+
+Les images/vidéos upscalées sont soumises à la licence du modèle utilisé pour les créer.
 
 ## 🔗 Liens Utiles
 
