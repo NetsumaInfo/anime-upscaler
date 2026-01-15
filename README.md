@@ -7,6 +7,8 @@ Application d'upscaling 2x optimisée pour les anime et dessins animés, avec tr
 ![CUDA](https://img.shields.io/badge/CUDA-supported-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
+**🔗 Repository:** [https://github.com/NetsumaInfo/anime-upscaler](https://github.com/NetsumaInfo/anime-upscaler)
+
 ## ✨ Fonctionnalités
 
 - **🖼️ Upscaling 2x AI** - Modèles spécialisés pour anime et dessins animés
