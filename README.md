@@ -2,7 +2,7 @@
 
 Application d'upscaling 2x optimisée pour les anime et dessins animés, avec traitement batch et export vidéo professionnel.
 
-![Version](https://img.shields.io/badge/version-2.0-blue)
+![Version](https://img.shields.io/badge/version-2.2-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![CUDA](https://img.shields.io/badge/CUDA-supported-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -11,14 +11,18 @@ Application d'upscaling 2x optimisée pour les anime et dessins animés, avec tr
 
 ## ✨ Fonctionnalités
 
-- **🖼️ Upscaling 2x AI** - Modèles spécialisés pour anime et dessins animés
+- **🖼️ Upscaling 2x AI** - 10 modèles spécialisés depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 - **📦 Traitement Batch** - Images et vidéos multiples simultanément
 - **🎬 Export Vidéo Pro** - H.264, H.265, ProRes, DNxHD/HR
 - **✨ Post-Processing** - Sharpening, contraste, saturation
-- **🎨 Formats Multiples** - PNG, JPEG, WebP
+- **🎨 Formats Multiples** - PNG, JPEG, WebP (sortie finale)
+- **🎞️ Format Frames Vidéo** - PNG 8/16-bit, JPEG configurable (décompression intermédiaire)
+- **🧪 Test Rapide** - Testez sur premier fichier (image ou vidéo) avant batch complet
+- **🗑️ Auto-Cleanup** - Suppression automatique frames intermédiaires pour économiser espace
 - **💎 Gestion Transparence** - Support alpha channel complet
-- **⚡ CUDA Optimisé** - Accélération GPU NVIDIA
-- **📁 Organisation Intelligente** - Arborescence simplifiée automatique
+- **⚡ CUDA Optimisé** - Accélération GPU NVIDIA avec FP16
+- **📁 Organisation Flexible** - Arborescence configurable (vidéos dans sous-dossier ou non)
+- **🎯 Interface Accordéons** - UI organisée et épurée
 
 ## 🚀 Installation
 
@@ -63,9 +67,11 @@ python app.py
 
 1. Lancez l'application avec `run.bat` (Windows) ou `python app.py`
 2. L'interface web s'ouvre automatiquement sur `http://localhost:7860`
-3. Glissez-déposez vos fichiers (images/vidéos)
-4. Sélectionnez un modèle AI (AnimeSharpV4-Fast recommandé)
-5. Cliquez sur "▶️ Run Batch"
+3. Glissez-déposez vos fichiers (images/vidéos) - vous pouvez ajouter autant de fichiers que vous voulez
+4. **Recommandé** : Testez d'abord avec le bouton "🧪 Test" (teste automatiquement le premier fichier uploadé)
+5. Sélectionnez un modèle AI (Ani4K v2 Compact recommandé par défaut)
+6. Ajustez les paramètres selon vos besoins
+7. Cliquez sur "▶️ Run Batch"
 
 ### Interface
 
@@ -90,30 +96,50 @@ python app.py
 
 ## 🤖 Modèles AI
 
-### Modèles Inclus
+### Modèles Inclus depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 
-| Modèle | Vitesse | Qualité | Recommandé pour |
-|--------|---------|---------|-----------------|
-| [**AnimeSharpV4-Fast**](https://openmodeldb.info/models/2x-AnimeSharpV4-Fast-RCAN-PU) | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Vidéos, usage quotidien |
-| [**AnimeSharpV4**](https://openmodeldb.info/models/2x-AnimeSharpV4) | ⭐⭐ | ⭐⭐⭐⭐⭐ | Images haute qualité |
-| [**Ani4VK-v2-Compact**](https://openmodeldb.info/models/2x-Ani4VK-v2-Compact) ⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | **Recommandé** - Tests, GPU limité |
+L'application télécharge automatiquement **10 modèles spécialisés** lors de l'installation :
 
-### AnimeSharpV4-Fast
+| Famille | Modèle | Vitesse | Qualité | Recommandé pour |
+|---------|--------|---------|---------|-----------------|
+| **AniToon** | RPLKSRS Small | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Anime 90s/2000s basse qualité - RAPIDE |
+| **AniToon** | RPLKSR | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Anime 90s/2000s basse qualité - Équilibré |
+| **AniToon** | RPLKSRL Large | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Anime 90s/2000s basse qualité - QUALITÉ MAX |
+| **Ani4K v2** | UltraCompact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Anime moderne (Bluray/WEB) - TRÈS RAPIDE |
+| **Ani4K v2** | Compact  | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **RECOMMANDÉ** - Anime moderne - Équilibré |
+| **AniSD** | AC RealPLKSR | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Anime ancien (vieux anime) - Variante AC |
+| **AniSD** | RealPLKSR | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Anime ancien (vieux anime) - Général |
+| **OpenProteus** | Compact | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Alternative gratuite à Topaz Proteus |
+| **AniScale2** | Compact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Usage général rapide |
 
-- **6x plus rapide** que AnimeSharpV4
-- **95% de la qualité** du modèle complet
-- Optimisé pour **artifacts de compression** (MPEG2, H264)
-- Parfait pour **traitement vidéo**
-- Reproduction **extrêmement fidèle**
+### Recommandations par Usage
+
+**Anime moderne (2010+, Bluray/WEB):**
+- 🏆 **Ani4K v2 Compact** (recommandé) - Meilleur équilibre vitesse/qualité
+- ⚡ Ani4K v2 UltraCompact - Si GPU limité
+- 💎 AniToon Large - Pour qualité maximale sur sources compressées
+
+**Anime ancien (90s-2000s, VHS/DVD/sources basse qualité):**
+- 🏆 **AniToon RPLKSR** - Excellent pour restauration
+- ⚡ AniToon Small - Version rapide
+- 💎 AniToon Large - Qualité maximale
+
+**Anime ancien (Vieux anime):**
+- 🏆 **AniSD AC RealPLKSR** - Variante AC optimisée
+- 🎯 AniSD RealPLKSR - Version générale
+
+**Usage général / Vidéos:**
+- 🏆 **OpenProteus Compact** - Alternative Topaz
+- ⚡ AniScale2 Compact - Très rapide
 
 ### Ajouter Vos Modèles
 
-1. Téléchargez des modèles depuis [OpenModelDB](https://openmodeldb.info/)
+1. Téléchargez des modèles depuis [OpenModelDB](https://openmodeldb.info/) ou [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 2. Placez-les dans le dossier `models/`
 3. Formats supportés: `.pth`, `.safetensors`
 4. Redémarrez l'application
 
-Les modèles sont détectés automatiquement!
+Les modèles sont détectés automatiquement et apparaissent dans la liste!
 
 ## ⚙️ Paramètres Détaillés
 
@@ -128,7 +154,9 @@ Les modèles sont détectés automatiquement!
 - Plus grand = meilleur blending, plus lent
 - Plus petit = plus rapide, possibles artifacts
 
-### Output Format
+### Output Format (Final)
+
+Format de sortie final pour images et vidéos encodées :
 
 - **PNG** : Sans perte, transparence supportée, fichiers volumineux
 - **JPEG** : Compression avec perte, petits fichiers, pas de transparence
@@ -138,6 +166,26 @@ Les modèles sont détectés automatiquement!
 - 95-100 : Quasi-lossless, recommandé
 - 85-95 : Bon compromis qualité/taille
 - 80-85 : Maximum compression
+
+### Video Frame Intermediate Format 🎞️ **NOUVEAU**
+
+Format utilisé pour sauvegarder les frames upscalées **avant** l'encodage vidéo :
+
+**PNG Options:**
+- **PNG - Uncompressed (16-bit)** : Aucune compression, qualité maximale, fichiers très volumineux, 16-bit depth
+- **PNG - Normal (8-bit)** : Compression niveau 6 (défaut), bon équilibre, 8-bit
+- **PNG - High Compression (8-bit)** : Compression niveau 9, fichiers plus petits, plus lent, 8-bit
+
+**JPEG Options:**
+- **JPEG - Quality 100%** : Qualité maximale, légère compression
+- **JPEG - Quality 95%** : Très bonne qualité, fichiers plus petits
+
+**💡 Recommandation:**
+- Pour qualité maximale : PNG Uncompressed (16-bit)
+- Pour équilibre : PNG Normal (8-bit) - *par défaut*
+- Pour économiser espace : JPEG Quality 95%
+
+**Note:** Ce paramètre affecte uniquement les vidéos, pas les images finales.
 
 ### Post-Processing
 
@@ -162,6 +210,29 @@ Les modèles sont détectés automatiquement!
 - ✅ Activé : Moins de VRAM, plus rapide (recommandé CUDA)
 - ❌ Désactivé : Précision maximale (FP32), plus lent
 
+### Test Rapide 🧪 **VERSION 2.2**
+
+Fonction de test rapide qui teste automatiquement le **premier fichier uploadé** (image ou vidéo) :
+
+**Comment utiliser:**
+1. Uploadez vos fichiers (images/vidéos) dans la section principale
+2. Ajustez vos paramètres (modèle, post-processing, etc.)
+3. Cliquez sur le bouton "🧪 Test"
+4. Le premier fichier uploadé est automatiquement testé :
+   - **Si image** : Upscalée directement
+   - **Si vidéo** : Première frame extraite et upscalée
+5. Visualisez le résultat dans l'onglet "⚖️ Compare"
+6. Ajustez les paramètres et testez à nouveau si nécessaire
+7. Une fois satisfait, lancez le traitement batch complet avec "▶️ Run Batch"
+
+**💡 Avantages:**
+- Pas besoin d'upload séparé - utilise vos fichiers déjà uploadés
+- Supporte vidéos (teste la première frame automatiquement)
+- Prévisualisation rapide sans traiter tous les fichiers
+- Ajustement des paramètres en temps réel
+- Économie de temps pour gros batches
+- Comparaison Before/After instantanée
+
 ## 🎬 Export Vidéo
 
 ### Codecs Disponibles
@@ -185,27 +256,89 @@ Les modèles sont détectés automatiquement!
 - DNxHR HQ / HQX
 
 **FPS (Frames Per Second):**
-- `0` : Préserver FPS original (recommandé)
-- `24/30/60` : Forcer FPS spécifique
+- `0` : Préserver FPS original (*par défaut et recommandé*)
+- `24/30/60` : Forcer FPS spécifique si nécessaire
 
 **Preserve Transparency:**
 - Copie le canal alpha original vers la sortie
 - Nécessite ProRes 4444/XQ ou DNxHR 444 pour vidéos
 
+## 🗑️ Auto-Cleanup (Économie d'Espace) **VERSION 2.2**
+
+Système de nettoyage automatique pour économiser de l'espace disque pendant le traitement vidéo :
+
+### Options Disponibles
+
+**🗑️ Delete input frames after processing**
+- Supprime automatiquement les frames extraites **au fur et à mesure** du traitement
+- Chaque frame originale est supprimée juste après son upscaling
+- Le dossier `input/` est supprimé complètement à la fin
+- **Recommandé si** : Vous n'avez pas besoin de conserver les frames originales extraites
+- **Économie** : Jusqu'à 50% d'espace pendant le traitement
+
+**🗑️ Delete upscaled frames after encoding**
+- Supprime automatiquement les frames upscalées après l'encodage vidéo réussi
+- Le dossier `output/` entier est supprimé si la vidéo est encodée avec succès
+- **Recommandé si** : Vous ne voulez garder que la vidéo finale encodée
+- **Économie** : Jusqu'à 90% d'espace final (garde uniquement la vidéo)
+
+**📁 Organize videos in videos/ folder**
+- Activé par défaut - toutes les vidéos vont dans `output/session/videos/nom_video/`
+- Désactivé - organisation "intelligente" :
+  - 1 vidéo seule → `output/session/nom_video/`
+  - Plusieurs vidéos → `output/session/videos/nom_video/`
+- **Recommandé** : Garder activé pour une organisation cohérente et prévisible
+
+### Exemples d'Utilisation
+
+**Scénario 1 - Maximum d'espace économisé (garde uniquement vidéo finale):**
+- ✅ Delete input frames after processing
+- ✅ Delete upscaled frames after encoding
+- Résultat : Seulement `video_upscaled.mp4` conservé
+
+**Scénario 2 - Garde frames upscalées (pour réencodage ultérieur):**
+- ✅ Delete input frames after processing
+- ❌ Delete upscaled frames after encoding
+- Résultat : `output/` (frames upscalées) + `video_upscaled.mp4`
+
+**Scénario 3 - Conservation complète (debug/archivage):**
+- ❌ Delete input frames after processing
+- ❌ Delete upscaled frames after encoding
+- Résultat : `input/` + `output/` + `video_upscaled.mp4`
+
+### 💡 Recommandations
+
+**Pour usage normal :**
+- ✅ Delete input frames
+- ✅ Delete upscaled frames
+- Économise énormément d'espace, garde uniquement les vidéos finales
+
+**Pour archivage / réencodage futur :**
+- ❌ Delete input frames
+- ❌ Delete upscaled frames
+- Conserve tout pour flexibilité maximale
+
+**Pour économie d'espace pendant traitement :**
+- ✅ Delete input frames (suppression au fur et à mesure)
+- ❌ Delete upscaled frames
+- Libère de l'espace progressivement pendant le traitement
+
 ## 📁 Organisation des Fichiers
 
-### Structure de Sortie Intelligente
+### Structure de Sortie
 
-L'application organise automatiquement les fichiers pour éviter les dossiers inutiles:
+L'application organise automatiquement les fichiers. La structure dépend de l'option "Organize videos in videos/ folder" :
 
-#### 1 seule image
+#### Images
+
+**1 seule image:**
 ```
 output/
 └── 20260115_143022/
     └── image_upscaled.png
 ```
 
-#### Plusieurs images
+**Plusieurs images:**
 ```
 output/
 └── 20260115_143022/
@@ -215,29 +348,53 @@ output/
         └── image3_upscaled.png
 ```
 
-#### 1 seule vidéo
-```
-output/
-└── 20260115_143022/
-    └── video_name/
-        ├── input/           # Frames originales
-        ├── output/          # Frames upscalées
-        └── video_name_upscaled.mp4
-```
+#### Vidéos (avec "Organize videos" activé - par défaut)
 
-#### Plusieurs vidéos
+**1 ou plusieurs vidéos:**
 ```
 output/
 └── 20260115_143022/
-    └── videos/
+    └── videos/                      # Toujours créé
         ├── video1/
-        │   ├── input/
-        │   ├── output/
+        │   ├── input/               # Supprimé si auto-delete activé
+        │   ├── output/              # Supprimé si auto-delete activé
         │   └── video1_upscaled.mp4
         └── video2/
             ├── input/
             ├── output/
             └── video2_upscaled.mp4
+```
+
+#### Vidéos (avec "Organize videos" désactivé - mode intelligent)
+
+**1 seule vidéo:**
+```
+output/
+└── 20260115_143022/
+    └── video_name/                  # Pas de sous-dossier "videos"
+        ├── input/
+        ├── output/
+        └── video_name_upscaled.mp4
+```
+
+**Plusieurs vidéos:**
+```
+output/
+└── 20260115_143022/
+    └── videos/                      # Créé seulement si plusieurs vidéos
+        ├── video1/
+        └── video2/
+```
+
+#### Avec Auto-Cleanup activé (recommandé)
+
+**Maximum nettoyage (les 2 options activées):**
+```
+output/
+└── 20260115_143022/
+    └── videos/
+        └── video_name/
+            └── video_name_upscaled.mp4   # SEULEMENT la vidéo finale
 ```
 
 ## 💻 Architecture Technique
@@ -311,6 +468,42 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ## 📝 Changelog
 
+### Version 2.2 (2026-01-19)
+
+**Nouvelles fonctionnalités:**
+- 🧪 **Test vidéo supporté** - La fonction Test supporte maintenant les vidéos (extrait et teste la première frame automatiquement)
+- 🗑️ **Auto-Cleanup système** - Suppression automatique des frames intermédiaires pour économiser l'espace disque
+  - Delete input frames after processing (suppression au fur et à mesure)
+  - Delete upscaled frames after encoding (garde uniquement vidéo finale)
+- 📁 **Organisation vidéos configurable** - Checkbox pour choisir entre organisation cohérente (toujours videos/) ou intelligente
+- 🎨 **UI compacte améliorée** - Sliders Tile Size/Overlap réorganisés verticalement pour gagner de la place
+
+**Améliorations:**
+- Test fonctionne sur premier fichier uploadé (pas besoin d'upload séparé)
+- Organisation par défaut : toutes les vidéos dans `videos/` (cohérence maximale)
+- Messages de statut pour nettoyage (🗑️) pour feedback utilisateur
+- Documentation complète sur Auto-Cleanup et organisation
+
+### Version 2.1 (2026-01-19)
+
+**Nouvelles fonctionnalités majeures:**
+- 🤖 **10 nouveaux modèles** depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) (AniToon, Ani4K v2, AniSD, OpenProteus, AniScale2)
+- 🎞️ **Format intermédiaire frames vidéo** configurable (PNG 8/16-bit, JPEG quality)
+- 🧪 **Test Image rapide** pour ajuster paramètres avant batch
+- 🎯 **Accordéons UI** pour sections Upload, AI Model, Output Format
+- 📁 **Upload multi-fichiers amélioré** - ajoutez autant de fichiers que vous voulez
+- 🎬 **FPS par défaut = 0** (préserve FPS original automatiquement)
+
+**Modèles remplacés:**
+- ❌ Anciens modèles Kim2091 (AnimeSharpV4, AnimeSharpV4-Fast)
+- ✅ Nouveaux modèles Upscale-Hub spécialisés par type de contenu
+- 🏆 Ani4K v2 Compact recommandé par défaut (équilibre vitesse/qualité)
+
+**Améliorations:**
+- 📥 install.bat télécharge automatiquement les 10 modèles
+- 📖 Documentation complète mise à jour
+- 🎨 Interface réorganisée et plus claire
+
 ### Version 2.0 (2026-01-15)
 
 **Nouvelles fonctionnalités:**
@@ -323,8 +516,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 **Améliorations:**
 - 📖 Documentation complète (README + Info Help)
-- 🎯 AnimeSharpV4-Fast recommandé par défaut
-- 🔧 Interface réorganisée avec accordéons
+- 🔧 Interface réorganisée
 - 💡 Tooltips et descriptions améliorées
 
 ### Version 1.0
@@ -340,19 +532,15 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 Tous les modèles sont fournis par leurs créateurs respectifs et soumis à leurs licences :
 
-#### [AnimeSharpV4](https://openmodeldb.info/models/2x-AnimeSharpV4) & [AnimeSharpV4-Fast](https://openmodeldb.info/models/2x-AnimeSharpV4-Fast-RCAN-PU)
-- **Auteur** : [Kim2091](https://github.com/Kim2091/Kim2091-Models)
-- **Licence** : CC-BY-4.0 (Attribution requise)
-- **Usage** : Commercial et non-commercial autorisés
-- **Source** : [Kim2091-Models Repository](https://github.com/Kim2091/Kim2091-Models)
-
-#### [Ani4VK-v2-Compact](https://openmodeldb.info/models/2x-Ani4VK-v2-Compact)
+#### [Upscale-Hub Models](https://github.com/Sirosky/Upscale-Hub)
 - **Auteur** : [Sirosky](https://github.com/Sirosky)
+- **Modèles inclus** : AniToon, Ani4K v2, AniSD, OpenProteus, AniScale2
 - **Licence** : CC-BY-NC-SA-4.0 (Attribution - Non Commercial - Share Alike)
 - **Usage** : Usage non-commercial uniquement, modifications autorisées si publiées sous même licence
 - **Source** : [Upscale-Hub Repository](https://github.com/Sirosky/Upscale-Hub)
+- **Détails** : Modèles spécialisés pour différents types d'anime (moderne, ancien, SD) avec architectures optimisées
 
-**⚠️ Important** : Les modèles ne sont PAS inclus dans ce dépôt. Ils sont automatiquement téléchargés depuis les sources officielles lors de la première utilisation. Respectez les conditions de licence de chaque modèle.
+**⚠️ Important** : Les modèles ne sont PAS inclus dans ce dépôt. Ils sont automatiquement téléchargés depuis les sources officielles lors de l'installation via `install.bat` ou au premier usage. Respectez les conditions de licence CC-BY-NC-SA-4.0 (usage non-commercial uniquement).
 
 ### Technologies
 
@@ -366,11 +554,12 @@ Tous les modèles sont fournis par leurs créateurs respectifs et soumis à leur
 
 **Application Code** : MIT License - Libre d'utilisation pour projets personnels et commerciaux.
 
-**Modèles AI** : Chaque modèle possède sa propre licence (voir section Crédits ci-dessus). 
-- **AnimeSharpV4** : CC-BY-4.0 (Usage commercial autorisé avec attribution)
-- **Ani4VK-v2-Compact** : CC-BY-NC-SA-4.0 (Usage non-commercial uniquement)
+**Modèles AI** : Tous les modèles inclus proviennent d'[Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) et sont sous licence **CC-BY-NC-SA-4.0**.
+- ✅ **Autorisé** : Usage non-commercial, modification, distribution
+- ❌ **Non autorisé** : Usage commercial
+- 📝 **Requis** : Attribution, partage sous même licence si modifié
 
-Les images/vidéos upscalées sont soumises à la licence du modèle utilisé pour les créer.
+Les images/vidéos upscalées sont soumises à la licence CC-BY-NC-SA-4.0 du modèle utilisé pour les créer.
 
 ## 🔗 Liens Utiles
 

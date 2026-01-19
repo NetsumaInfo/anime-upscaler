@@ -7,8 +7,8 @@ cd /d "%~dp0"
 
 echo.
 echo ╔══════════════════════════════════════════════════════════════════════╗
-echo ║            🎨 Anime Upscaler - Installation                          ║
-echo ║         Optimisé pour NVIDIA CUDA                                    ║
+echo           🎨 Anime Upscaler - Installation                         
+echo           Optimisé pour NVIDIA CUDA                                    
 echo ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
@@ -140,50 +140,132 @@ if not exist "output" (
     echo ℹ️ Dossier "output" existant
 )
 
-:: Download models
+:: Download models from Upscale-Hub
 echo.
-echo 📥 Téléchargement des modèles AI par défaut...
+echo 📥 Téléchargement des modèles AI depuis Upscale-Hub (https://github.com/Sirosky/Upscale-Hub)...
 echo    (Les modèles peuvent aussi être ajoutés manuellement dans le dossier "models")
 echo.
 
-:: Model 1: AnimeSharpV4 RCAN
-if not exist "models\2x-AnimeSharpV4_RCAN.safetensors" (
-    echo [1/3] Téléchargement de 2x-AnimeSharpV4_RCAN... (~90 MB)
-    curl -L --progress-bar -o "models\2x-AnimeSharpV4_RCAN.safetensors" "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-AnimeSharpV4/2x-AnimeSharpV4_RCAN.safetensors"
+:: Model 1: AniToon Small (Fast, for old/low-quality anime)
+if not exist "models\2x_AniToon_RPLKSRS_242500.pth" (
+    echo [1/10] Téléchargement de AniToon Small... (~9 MB)
+    curl -L --progress-bar -o "models\2x_AniToon_RPLKSRS_242500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRS_242500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 1/3 téléchargé
+        echo ✅ Modèle 1/10 téléchargé
     )
 ) else (
-    echo ✅ [1/3] 2x-AnimeSharpV4_RCAN déjà présent
+    echo ✅ [1/10] AniToon Small déjà présent
 )
 
-:: Model 2: AnimeSharpV4 Fast
-if not exist "models\2x-AnimeSharpV4_Fast_RCAN_PU.safetensors" (
-    echo [2/3] Téléchargement de 2x-AnimeSharpV4_Fast_RCAN_PU... (~90 MB)
-    curl -L --progress-bar -o "models\2x-AnimeSharpV4_Fast_RCAN_PU.safetensors" "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-AnimeSharpV4/2x-AnimeSharpV4_Fast_RCAN_PU.safetensors"
+:: Model 2: AniToon (Balanced, for old/low-quality anime)
+if not exist "models\2x_AniToon_RPLKSR_197500.pth" (
+    echo [2/10] Téléchargement de AniToon... (~30 MB)
+    curl -L --progress-bar -o "models\2x_AniToon_RPLKSR_197500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSR_197500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 2/3 téléchargé
+        echo ✅ Modèle 2/10 téléchargé
     )
 ) else (
-    echo ✅ [2/3] 2x-AnimeSharpV4_Fast_RCAN_PU déjà présent
+    echo ✅ [2/10] AniToon déjà présent
 )
 
-:: Model 3: Ani4VK v2 Compact
-if not exist "models\2x_Ani4Kv2_Compact.pth" (
-    echo [3/3] Téléchargement de 2x_Ani4Kv2_Compact... (~30 MB)
-    curl -L --progress-bar -o "models\2x_Ani4Kv2_Compact.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth"
+:: Model 3: AniToon Large (Best quality, for old/low-quality anime)
+if not exist "models\2x_AniToon_RPLKSRL_280K.pth" (
+    echo [3/10] Téléchargement de AniToon Large... (~66 MB)
+    curl -L --progress-bar -o "models\2x_AniToon_RPLKSRL_280K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRL_280K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 3/3 téléchargé
+        echo ✅ Modèle 3/10 téléchargé
     )
 ) else (
-    echo ✅ [3/3] 2x_Ani4Kv2_Compact déjà présent
+    echo ✅ [3/10] AniToon Large déjà présent
 )
+
+:: Model 4: Ani4K v2 UltraCompact (Very fast, for modern anime)
+if not exist "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" (
+    echo [4/10] Téléchargement de Ani4K v2 UltraCompact... (~20 MB)
+    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_UltraCompact_105K.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 4/10 téléchargé
+    )
+) else (
+    echo ✅ [4/10] Ani4K v2 UltraCompact déjà présent
+)
+
+:: Model 5: Ani4K v2 Compact (RECOMMENDED - Balanced speed/quality)
+if not exist "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" (
+    echo [5/10] Téléchargement de Ani4K v2 Compact RECOMMANDÉ... (~30 MB)
+    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 5/10 téléchargé - RECOMMANDÉ
+    )
+) else (
+    echo ✅ [5/10] Ani4K v2 Compact déjà présent - RECOMMANDÉ
+)
+
+:: Model 6: AniSD AC (For SD anime - clean sources)
+if not exist "models\2x_AniSD_AC_RealPLKSR_127500.pth" (
+    echo [6/10] Téléchargement de AniSD AC... (~30 MB)
+    curl -L --progress-bar -o "models\2x_AniSD_AC_RealPLKSR_127500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_AC_RealPLKSR_127500.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 6/10 téléchargé
+    )
+) else (
+    echo ✅ [6/10] AniSD AC déjà présent
+)
+
+:: Model 7: AniSD (For SD anime - general)
+if not exist "models\2x_AniSD_RealPLKSR_140K.pth" (
+    echo [7/10] Téléchargement de AniSD... (~30 MB)
+    curl -L --progress-bar -o "models\2x_AniSD_RealPLKSR_140K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_RealPLKSR_140K.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 7/10 téléchargé
+    )
+) else (
+    echo ✅ [7/10] AniSD déjà présent
+)
+
+:: Model 8: OpenProteus (Free alternative to Topaz Proteus)
+if not exist "models\2x_OpenProteus_Compact_i2_70K.pth" (
+    echo [8/10] Téléchargement de OpenProteus... (~30 MB)
+    curl -L --progress-bar -o "models\2x_OpenProteus_Compact_i2_70K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/OpenProteus/2x_OpenProteus_Compact_i2_70K.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 8/10 téléchargé
+    )
+) else (
+    echo ✅ [8/10] OpenProteus déjà présent
+)
+
+:: Model 9: AniScale2 Compact (Fast general purpose)
+if not exist "models\2x_AniScale2S_Compact_i8_60K.pth" (
+    echo [9/10] Téléchargement de AniScale2 Compact... (~25 MB)
+    curl -L --progress-bar -o "models\2x_AniScale2S_Compact_i8_60K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniScale2/2x_AniScale2S_Compact_i8_60K.pth"
+    if %errorlevel% neq 0 (
+        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
+    ) else (
+        echo ✅ Modèle 9/10 téléchargé
+    )
+) else (
+    echo ✅ [9/10] AniScale2 Compact déjà présent
+)
+
+echo.
+echo ℹ️ Total: 10 modèles configurés depuis Upscale-Hub
+echo    Modèle recommandé: Ani4K v2 Compact (équilibre vitesse/qualité)
 
 :: Test CUDA availability
 echo.

@@ -84,8 +84,17 @@ VIDEO_CODECS = {
 DEFAULT_EXPORT_SETTINGS = {
     "codec": "H.264 (AVC)",
     "profile": "High",
-    "fps": 24,
+    "fps": 0,  # 0 = use original FPS
     "preserve_alpha": True
+}
+
+# Frame intermediate format settings
+FRAME_FORMAT_OPTIONS = {
+    "PNG - Uncompressed (16-bit)": {"format": "PNG", "compress_level": 0, "bits": 16},
+    "PNG - Normal (8-bit)": {"format": "PNG", "compress_level": 6, "bits": 8},
+    "PNG - High Compression (8-bit)": {"format": "PNG", "compress_level": 9, "bits": 8},
+    "JPEG - Quality 100%": {"format": "JPEG", "quality": 100},
+    "JPEG - Quality 95%": {"format": "JPEG", "quality": 95},
 }
 
 # Default upscaling settings
@@ -100,20 +109,68 @@ DEFAULT_UPSCALING_SETTINGS = {
     "use_fp16": True
 }
 
-# Default models with download URLs (fallback if not in models folder)
+# Default models with download URLs from Upscale-Hub (https://github.com/Sirosky/Upscale-Hub)
+# Display names map technical filenames to user-friendly names
 DEFAULT_MODELS = {
-    "2x-AnimeSharpV4_RCAN.safetensors": {
-        "url": "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-AnimeSharpV4/2x-AnimeSharpV4_RCAN.safetensors",
-        "scale": 2
+    # AniToon - Best for 90s/2000s cartoons and low-quality anime
+    "2x_AniToon_RPLKSRS_242500.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRS_242500.pth",
+        "scale": 2,
+        "description": "AniToon Small - Fast, for old/low-quality anime",
+        "display_name": "AniToon Small"
     },
-    "2x-AnimeSharpV4_Fast_RCAN_PU.safetensors": {
-        "url": "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-AnimeSharpV4/2x-AnimeSharpV4_Fast_RCAN_PU.safetensors",
-        "scale": 2
+    "2x_AniToon_RPLKSR_197500.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSR_197500.pth",
+        "scale": 2,
+        "description": "AniToon - Balanced, for old/low-quality anime",
+        "display_name": "AniToon"
     },
-    "2x_Ani4Kv2_Compact.pth": {
+    "2x_AniToon_RPLKSRL_280K.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRL_280K.pth",
+        "scale": 2,
+        "description": "AniToon Large - Best quality, for old/low-quality anime",
+        "display_name": "AniToon Large"
+    },
+    # Ani4K v2 - Best for modern anime (Bluray to WEB)
+    "2x_Ani4Kv2_G6i2_UltraCompact_105K.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_UltraCompact_105K.pth",
+        "scale": 2,
+        "description": "Ani4K v2 UltraCompact - Very fast, for modern anime",
+        "display_name": "Ani4K v2 UltraCompact"
+    },
+    "2x_Ani4Kv2_G6i2_Compact_107500.pth": {
         "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth",
-        "scale": 2
-    }
+        "scale": 2,
+        "description": "Ani4K v2 Compact - RECOMMENDED - Balanced speed/quality",
+        "display_name": "Ani4K v2 Compact (Recommended)"
+    },
+    # AniSD - For old anime
+    "2x_AniSD_AC_RealPLKSR_127500.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_AC_RealPLKSR_127500.pth",
+        "scale": 2,
+        "description": "AniSD AC - For old anime (AC variant)",
+        "display_name": "AniSD AC"
+    },
+    "2x_AniSD_RealPLKSR_140K.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_RealPLKSR_140K.pth",
+        "scale": 2,
+        "description": "AniSD - For old anime (general)",
+        "display_name": "AniSD"
+    },
+    # OpenProteus - Alternative to Topaz Proteus
+    "2x_OpenProteus_Compact_i2_70K.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/OpenProteus/2x_OpenProteus_Compact_i2_70K.pth",
+        "scale": 2,
+        "description": "OpenProteus - Free alternative to Topaz Proteus",
+        "display_name": "OpenProteus Compact"
+    },
+    # AniScale2 - Various options
+    "2x_AniScale2S_Compact_i8_60K.pth": {
+        "url": "https://github.com/Sirosky/Upscale-Hub/releases/download/AniScale2/2x_AniScale2S_Compact_i8_60K.pth",
+        "scale": 2,
+        "description": "AniScale2 Compact - Fast general purpose",
+        "display_name": "AniScale2 Compact"
+    },
 }
 
 def extract_scale_from_filename(filename: str) -> int:
@@ -124,9 +181,12 @@ def extract_scale_from_filename(filename: str) -> int:
         return int(match.group(1))
     return 2  # Default scale
 
-def scan_models() -> dict:
-    """Scan models directory and build model configuration"""
+def scan_models() -> tuple[dict, dict]:
+    """Scan models directory and build model configuration with display names
+    Returns: (models_dict, display_to_file_mapping)
+    """
     models = {}
+    display_to_file = {}  # Maps display name -> filename
 
     # Scan for existing models in models folder
     if MODELS_DIR.exists():
@@ -135,28 +195,34 @@ def scan_models() -> dict:
                 model_name = model_file.stem
                 scale = extract_scale_from_filename(model_file.name)
 
-                models[model_name] = {
+                # Get display name from DEFAULT_MODELS if available
+                display_name = DEFAULT_MODELS.get(model_file.name, {}).get("display_name", model_name)
+
+                models[display_name] = {
                     "file": model_file.name,
                     "url": DEFAULT_MODELS.get(model_file.name, {}).get("url", None),
                     "scale": scale
                 }
+                display_to_file[display_name] = model_file.name
 
     # Add default models if not found (they'll be auto-downloaded)
     for default_file, default_config in DEFAULT_MODELS.items():
         model_path = MODELS_DIR / default_file
+        display_name = default_config.get("display_name", Path(default_file).stem)
+
         if not model_path.exists():
-            model_name = Path(default_file).stem
-            if model_name not in models:
-                models[model_name] = {
+            if display_name not in models:
+                models[display_name] = {
                     "file": default_file,
                     "url": default_config["url"],
                     "scale": default_config["scale"]
                 }
+                display_to_file[display_name] = default_file
 
-    return models
+    return models, display_to_file
 
 # Model configurations (auto-detected + defaults)
-MODELS = scan_models()
+MODELS, MODEL_DISPLAY_TO_FILE = scan_models()
 
 # Cached models
 loaded_models = {}
@@ -337,6 +403,34 @@ def upscale_image(img: Image.Image, model_name: str, tile_size: int = 512, tile_
 
     return result_img, img
 
+def save_frame_with_format(img: Image.Image, path: Path, frame_format_name: str):
+    """Save frame with specified intermediate format"""
+    config = FRAME_FORMAT_OPTIONS[frame_format_name]
+
+    if config["format"] == "PNG":
+        # Handle bit depth for PNG
+        if config["bits"] == 16:
+            # Convert to 16-bit PNG
+            if img.mode == 'RGB':
+                img_16bit = img.convert('I;16')  # 16-bit grayscale
+                # For RGB, we need to save each channel
+                img.save(path.with_suffix('.png'), 'PNG', compress_level=config["compress_level"], bits=16)
+            else:
+                img.save(path.with_suffix('.png'), 'PNG', compress_level=config["compress_level"])
+        else:
+            # 8-bit PNG
+            img.save(path.with_suffix('.png'), 'PNG', compress_level=config["compress_level"])
+
+    elif config["format"] == "JPEG":
+        # Convert RGBA to RGB for JPEG
+        if img.mode in ('RGBA', 'LA'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else img.split()[1])
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        img.save(path.with_suffix('.jpg'), 'JPEG', quality=config["quality"], optimize=True)
+
 def extract_frames(video: str, out_dir: str):
     """Extract frames from video with alpha channel support"""
     os.makedirs(out_dir, exist_ok=True)
@@ -365,8 +459,8 @@ def get_video_fps(video_path: str):
     except:
         return 24.0  # Default fallback
 
-def encode_video(frames_dir: str, output_path: str, codec_name: str, profile_name: str, fps: float, preserve_alpha: bool = True):
-    """Encode video from frames with specified codec and profile"""
+def encode_video(frames_dir: str, output_path: str, codec_name: str, profile_name: str, fps: float, preserve_alpha: bool = True, original_video_path: str = None, keep_audio: bool = False):
+    """Encode video from frames with specified codec and profile, optionally keeping audio from original"""
     codec_config = VIDEO_CODECS[codec_name]
     profile_config = codec_config["profiles"][profile_name]
     codec = codec_config["codec"]
@@ -380,6 +474,10 @@ def encode_video(frames_dir: str, output_path: str, codec_name: str, profile_nam
         "-framerate", str(fps),
         "-i", os.path.join(frames_dir, "frame_%05d.png"),
     ]
+
+    # Add original video as audio source if keep_audio is enabled
+    if keep_audio and original_video_path:
+        cmd.extend(["-i", original_video_path])
 
     # Codec-specific settings
     if codec_name == "H.264 (AVC)":
@@ -426,6 +524,16 @@ def encode_video(frames_dir: str, output_path: str, codec_name: str, profile_nam
                 "-b:v", profile_config["bitrate"],
                 "-pix_fmt", "yuv422p"
             ])
+
+    # Add audio settings if keeping audio
+    if keep_audio and original_video_path:
+        cmd.extend([
+            "-map", "0:v:0",      # Map video from frames input
+            "-map", "1:a:0?",     # Map audio from original video (optional with ?)
+            "-c:a", "aac",        # Encode audio as AAC
+            "-b:a", "192k",       # Audio bitrate
+            "-shortest"           # End when shortest stream ends
+        ])
 
     cmd.append(output_path)
 
@@ -525,8 +633,9 @@ def save_image_with_format(img: Image.Image, path: Path, output_format: str, jpe
         img.save(path.with_suffix('.png'), 'PNG', optimize=True)
 
 def process_batch(files, model, tile_size, tile_overlap, output_format, jpeg_quality, sharpening, contrast,
-                 saturation, use_fp16, codec_name, profile_name, fps, preserve_alpha, export_video, progress=gr.Progress()):
-    """Process multiple files with video export support"""
+                 saturation, use_fp16, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
+                 auto_delete_input_frames, auto_delete_output_frames, organize_videos_folder, progress=gr.Progress()):
+    """Process multiple files with video export support and auto-cleanup"""
     global processing_state, frame_pairs
     processing_state = {"running": True, "paused": False, "stop": False}
     frame_pairs = []
@@ -595,11 +704,15 @@ def process_batch(files, model, tile_size, tile_overlap, output_format, jpeg_qua
 
             vid_name = Path(video_path).stem
 
-            # Smart folder organization: only create "videos" subfolder if multiple videos
-            if len(videos) == 1:
-                vid_session = session / vid_name
-            else:
+            # Organize videos based on user preference
+            if organize_videos_folder:
                 vid_session = session / "videos" / vid_name
+            else:
+                # Smart folder organization: only create "videos" subfolder if multiple videos
+                if len(videos) == 1:
+                    vid_session = session / vid_name
+                else:
+                    vid_session = session / "videos" / vid_name
 
             frames_in = vid_session / "input"
             frames_out = vid_session / "output"
@@ -636,12 +749,21 @@ def process_batch(files, model, tile_size, tile_overlap, output_format, jpeg_qua
                 img = Image.open(fp)
                 result, orig = upscale_image(img, model, tile_size, tile_overlap, preserve_alpha,
                                             output_format, jpeg_quality, sharpening, contrast, saturation, use_fp16)
-                result.save(frames_out / f"frame_{i:05d}.png")
+                # Save frame with chosen intermediate format
+                frame_path = frames_out / f"frame_{i:05d}"
+                save_frame_with_format(result, frame_path, frame_format)
                 all_results.append(rgba_to_rgb_for_display(result))
 
                 # Store pair for navigation with white background for display
                 orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
                 frame_pairs.append((rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result)))
+
+                # Auto-delete input frame after processing (if enabled)
+                if auto_delete_input_frames:
+                    try:
+                        os.remove(fp)
+                    except Exception as e:
+                        print(f"⚠️ Failed to delete input frame {fp}: {e}")
 
             # Export video if requested
             if export_video and not processing_state["stop"]:
@@ -663,14 +785,35 @@ def process_batch(files, model, tile_size, tile_overlap, output_format, jpeg_qua
                     codec_name,
                     profile_name,
                     original_fps,
-                    preserve_alpha
+                    preserve_alpha,
+                    video_path,
+                    keep_audio
                 )
 
                 if success:
                     status_messages.append(f"✅ {vid_name}: Video exported ({codec_name} - {profile_name})")
                     download_files.append(str(video_output))
+
+                    # Auto-delete upscaled frames after successful encoding (if enabled)
+                    if auto_delete_output_frames:
+                        try:
+                            import shutil
+                            shutil.rmtree(frames_out)
+                            status_messages.append(f"🗑️ {vid_name}: Cleaned up upscaled frames")
+                        except Exception as e:
+                            status_messages.append(f"⚠️ {vid_name}: Failed to delete upscaled frames: {e}")
                 else:
                     status_messages.append(f"⚠️ {vid_name}: {result_msg}")
+
+            # Auto-delete input frames folder if it's empty or if auto-delete was enabled
+            if auto_delete_input_frames:
+                try:
+                    import shutil
+                    if frames_in.exists():
+                        shutil.rmtree(frames_in)
+                        status_messages.append(f"🗑️ {vid_name}: Cleaned up input frames")
+                except Exception as e:
+                    print(f"⚠️ Failed to delete input frames folder: {e}")
 
             status_messages.append(f"✅ {vid_name}: {total_frames} frames processed")
 
@@ -726,6 +869,58 @@ def show_file_summary(files):
 
     return " | ".join(summary) if summary else "No valid files"
 
+def test_image_upscale(uploaded_files, model, tile_size, tile_overlap, output_format, jpeg_quality,
+                       sharpening, contrast, saturation, use_fp16, preserve_alpha):
+    """Quick test upscale on the first uploaded file (image or video first frame) for adjusting model parameters"""
+    if not uploaded_files or len(uploaded_files) == 0:
+        return None, gr.update(visible=True, value="❌ No files uploaded. Please upload images/videos first.")
+
+    # Get first file
+    first_file = uploaded_files[0] if isinstance(uploaded_files, list) else uploaded_files
+    file_ext = Path(first_file).suffix.lower()
+
+    try:
+        # Handle video files - extract first frame
+        if file_ext in VIDEO_EXTENSIONS:
+            import tempfile
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Extract only the first frame
+                temp_frame = os.path.join(temp_dir, "frame_00000.png")
+                result = subprocess.run([
+                    "ffmpeg", "-i", first_file,
+                    "-vframes", "1",  # Extract only first frame
+                    "-pix_fmt", "rgba",
+                    "-start_number", "0",
+                    temp_frame, "-y"
+                ], capture_output=True, text=True)
+
+                if result.returncode != 0 or not os.path.exists(temp_frame):
+                    return None, gr.update(visible=True, value=f"❌ Failed to extract first frame from video: {result.stderr}")
+
+                img = Image.open(temp_frame)
+                source_type = "video (first frame)"
+
+        # Handle image files
+        elif file_ext in IMAGE_EXTENSIONS:
+            img = Image.open(first_file)
+            source_type = "image"
+
+        else:
+            return None, gr.update(visible=True, value=f"❌ Unsupported file type ({file_ext}). Please upload an image or video file.")
+
+        # Perform upscaling
+        result, orig = upscale_image(img, model, tile_size, tile_overlap, preserve_alpha,
+                                    output_format, jpeg_quality, sharpening, contrast, saturation, use_fp16)
+
+        # Prepare for display (convert RGBA to RGB with white background if needed)
+        orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
+        display_pair = (rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result))
+
+        return display_pair, gr.update(visible=True, value=f"✅ Test completed - {Path(first_file).name} ({source_type}) - {orig.width}x{orig.height} → {result.width}x{result.height}")
+
+    except Exception as e:
+        return None, gr.update(visible=True, value=f"❌ Error: {str(e)}")
+
 def create_app():
     with gr.Blocks(title="Anime Upscaler - Batch & Video Export") as app:
 
@@ -735,37 +930,44 @@ def create_app():
         with gr.Row():
             # Left Panel
             with gr.Column(scale=1):
-                gr.Markdown("### 📁 Input Files")
-                file_input = gr.File(
-                    label="Upload Images/Videos (Multiple files supported)",
-                    file_types=["image", "video"],
-                    type="filepath",
-                    file_count="multiple"
-                )
-                file_summary = gr.Textbox(label="Files Summary", interactive=False, value="No files uploaded")
-
-                gr.Markdown("### ⚙️ Upscaling Settings")
-                model_select = gr.Radio(
-                    list(MODELS.keys()),
-                    value="2x_Ani4Kv2_Compact",
-                    label="AI Model"
-                )
-
-                with gr.Row():
-                    tile_slider = gr.Slider(256, 1024, DEFAULT_UPSCALING_SETTINGS["tile_size"],
-                                          step=128, label="Tile Size (VRAM)", scale=2)
-                    tile_overlap_slider = gr.Slider(16, 64, DEFAULT_UPSCALING_SETTINGS["tile_overlap"],
-                                                   step=8, label="Tile Overlap", scale=1)
-
-                with gr.Row():
-                    output_format_select = gr.Dropdown(
-                        ["PNG", "JPEG", "WebP"],
-                        value=DEFAULT_UPSCALING_SETTINGS["output_format"],
-                        label="Output Format",
-                        scale=1
+                with gr.Accordion("📁 Upload Images/Videos (Multiple files supported)", open=True):
+                    file_input = gr.File(
+                        label="Drop files here or click to browse",
+                        file_types=["image", "video"],
+                        type="filepath",
+                        file_count="multiple"
                     )
-                    jpeg_quality_slider = gr.Slider(80, 100, DEFAULT_UPSCALING_SETTINGS["jpeg_quality"],
-                                                   step=5, label="JPEG/WebP Quality", scale=2)
+                    file_summary = gr.Textbox(label="Files Summary", interactive=False, value="No files uploaded")
+
+                with gr.Accordion("🤖 AI Model", open=True):
+                    model_select = gr.Radio(
+                        list(MODELS.keys()),
+                        value="Ani4K v2 Compact (Recommended)",
+                        label="Select Model"
+                    )
+
+                with gr.Accordion("⚙️ Output Format, Style & Size", open=True):
+                    tile_slider = gr.Slider(256, 1024, DEFAULT_UPSCALING_SETTINGS["tile_size"],
+                                          step=128, label="Tile Size (VRAM)")
+                    tile_overlap_slider = gr.Slider(16, 64, DEFAULT_UPSCALING_SETTINGS["tile_overlap"],
+                                                   step=8, label="Tile Overlap")
+
+                    with gr.Row():
+                        output_format_select = gr.Dropdown(
+                            ["PNG", "JPEG", "WebP"],
+                            value=DEFAULT_UPSCALING_SETTINGS["output_format"],
+                            label="Final Output Format",
+                            scale=1
+                        )
+                        jpeg_quality_slider = gr.Slider(80, 100, DEFAULT_UPSCALING_SETTINGS["jpeg_quality"],
+                                                       step=5, label="JPEG/WebP Quality", scale=2)
+
+                    frame_format_select = gr.Dropdown(
+                        list(FRAME_FORMAT_OPTIONS.keys()),
+                        value="PNG - Normal (8-bit)",
+                        label="🎬 Video Frame Intermediate Format",
+                        info="Format used when saving upscaled frames before video encoding"
+                    )
 
                 with gr.Accordion("🎨 Post-Processing", open=False):
                     sharpening_slider = gr.Slider(0.0, 2.0, DEFAULT_UPSCALING_SETTINGS["sharpening"],
@@ -780,34 +982,64 @@ def create_app():
                                                 value=DEFAULT_UPSCALING_SETTINGS["use_fp16"],
                                                 info="Faster on CUDA, slightly lower precision")
 
-                gr.Markdown("### 🎬 Video Export Settings")
-                export_video_check = gr.Checkbox(label="Export videos (not just frames)", value=True)
+                with gr.Accordion("🎬 Video Export Settings", open=True):
+                    export_video_check = gr.Checkbox(label="Export videos (not just frames)", value=True)
 
-                codec_select = gr.Dropdown(
-                    list(VIDEO_CODECS.keys()),
-                    value=DEFAULT_EXPORT_SETTINGS["codec"],
-                    label="Video Codec"
-                )
+                    codec_select = gr.Dropdown(
+                        list(VIDEO_CODECS.keys()),
+                        value=DEFAULT_EXPORT_SETTINGS["codec"],
+                        label="Video Codec"
+                    )
 
-                profile_select = gr.Dropdown(
-                    list(VIDEO_CODECS[DEFAULT_EXPORT_SETTINGS["codec"]]["profiles"].keys()),
-                    value=DEFAULT_EXPORT_SETTINGS["profile"],
-                    label="Codec Profile"
-                )
+                    profile_select = gr.Dropdown(
+                        list(VIDEO_CODECS[DEFAULT_EXPORT_SETTINGS["codec"]]["profiles"].keys()),
+                        value=DEFAULT_EXPORT_SETTINGS["profile"],
+                        label="Codec Profile"
+                    )
 
-                fps_slider = gr.Slider(
-                    0, 60, DEFAULT_EXPORT_SETTINGS["fps"],
-                    step=1,
-                    label="FPS (0 = use original)"
-                )
+                    fps_slider = gr.Slider(
+                        0, 60, DEFAULT_EXPORT_SETTINGS["fps"],
+                        step=1,
+                        label="FPS (0 = use original)"
+                    )
 
-                preserve_alpha_check = gr.Checkbox(
-                    label="Preserve transparency (if supported)",
-                    value=DEFAULT_EXPORT_SETTINGS["preserve_alpha"]
-                )
+                    preserve_alpha_check = gr.Checkbox(
+                        label="Preserve transparency (if supported)",
+                        value=DEFAULT_EXPORT_SETTINGS["preserve_alpha"]
+                    )
+
+                    keep_audio_check = gr.Checkbox(
+                        label="🔊 Keep audio from original video",
+                        value=True,
+                        info="Copy audio track from source video to upscaled output"
+                    )
+
+                gr.Markdown("### 🗑️ Auto-Cleanup (Save Space)")
+                with gr.Accordion("Auto-Deletion Settings", open=False):
+                    auto_delete_input_frames = gr.Checkbox(
+                        label="🗑️ Delete input frames after processing",
+                        value=False,
+                        info="Automatically delete extracted input frames after video is upscaled"
+                    )
+                    auto_delete_output_frames = gr.Checkbox(
+                        label="🗑️ Delete upscaled frames after encoding",
+                        value=False,
+                        info="Automatically delete upscaled frames after video is successfully encoded"
+                    )
+                    organize_videos_folder = gr.Checkbox(
+                        label="📁 Organize videos in videos/ folder",
+                        value=True,
+                        info="Always put videos in a 'videos' subfolder for consistent organization"
+                    )
 
                 with gr.Row():
+                    test_btn = gr.Button("🧪 Test", variant="secondary", size="lg")
                     process_btn = gr.Button("▶️ Run Batch", variant="primary", size="lg")
+
+                test_status = gr.Textbox(label="Test Status", interactive=False, visible=False)
+
+                gr.Markdown("---")
+                with gr.Row():
                     pause_btn = gr.Button("⏸️ Pause", size="lg")
                     stop_btn = gr.Button("⏹️ Stop", variant="stop", size="lg")
 
@@ -829,25 +1061,25 @@ def create_app():
 
         with gr.Accordion("ℹ️ Info & Help", open=False):
             gr.Markdown(f"""
-### 🤖 AI Models
-Les modèles détectés automatiquement apparaissent dans la liste de sélection.
+### 🤖 AI Models (Upscale-Hub)
 
-**Modèles par défaut:**
-| Modèle | Vitesse | Qualité | Utilisation recommandée |
-|--------|---------|---------|------------------------|
-| [**AnimeSharpV4**](https://openmodeldb.info/models/2x-AnimeSharpV4) | ⭐⭐ Lent | ⭐⭐⭐⭐⭐ Excellent | Images haute qualité, photos d'archives |
-| [**AnimeSharpV4-Fast**](https://openmodeldb.info/models/2x-AnimeSharpV4-Fast-RCAN-PU) | ⭐⭐⭐⭐ Rapide | ⭐⭐⭐⭐⭐ Excellent | Vidéos, usage quotidien, compression artifacts |
-| [**Ani4VK-v2-Compact**](https://openmodeldb.info/models/2x-Ani4VK-v2-Compact) ⭐ | ⭐⭐⭐⭐⭐ Très rapide | ⭐⭐⭐ Bon | **Recommandé** - Tests rapides, GPU limité |
+**10 modèles spécialisés** depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub):
 
-**AnimeSharpV4-Fast** est spécialement optimisé pour:
-- Traitement vidéo (6x plus rapide que V4)
-- Gestion des artifacts de compression (MPEG2, H264)
-- Reproduction fidèle avec détails excellents (~95% qualité V4)
+| Famille | Modèle | Vitesse | Qualité | Usage recommandé |
+|---------|--------|---------|---------|------------------|
+| **Ani4K v2** | Compact (Recommandé) | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Anime moderne (Bluray/WEB) - Équilibré |
+| **Ani4K v2** | UltraCompact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Anime moderne - Très rapide |
+| **AniToon** | Small/Regular/Large | ⭐⭐⭐-⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐-⭐⭐⭐⭐⭐ | Anime 90s/2000s basse qualité |
+| **AniSD** | AC/Regular | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Anime ancien (vieux anime) |
+| **OpenProteus** | Compact | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Alternative Topaz Proteus |
+| **AniScale2** | Compact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Usage général rapide |
+
+**🏆 Ani4K v2 Compact** est recommandé pour la plupart des usages: excellent équilibre vitesse/qualité pour anime moderne.
 
 **➕ Ajouter vos propres modèles:**
 - Placez vos modèles (.pth, .safetensors) dans le dossier `models/`
 - Formats supportés: PyTorch (.pth), SafeTensors (.safetensors)
-- Source recommandée: [OpenModelDB](https://openmodeldb.info/)
+- Source: [OpenModelDB](https://openmodeldb.info/) ou [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 - Les modèles sont détectés automatiquement au démarrage
 
 ### ⚙️ Paramètres d'Upscaling
@@ -897,23 +1129,51 @@ Les modèles détectés automatiquement apparaissent dans la liste de sélection
 - Fonctionne avec tous les formats d'images
 - Pour les vidéos: nécessite ProRes 4444/XQ ou DNxHR 444
 
+### 🗑️ Auto-Cleanup (Économie d'Espace) **NOUVEAU v2.2**
+
+**Delete input frames after processing:**
+- Supprime les frames extraites au fur et à mesure du traitement
+- Économise jusqu'à 50% d'espace pendant le traitement
+- Recommandé si vous n'avez pas besoin des frames originales
+
+**Delete upscaled frames after encoding:**
+- Supprime les frames upscalées après encodage vidéo réussi
+- Économise jusqu'à 90% d'espace final (garde uniquement la vidéo)
+- Recommandé pour usage normal
+
+**Organize videos in videos/ folder:**
+- ✅ Activé (défaut): Toutes les vidéos vont dans `videos/` (cohérence)
+- ❌ Désactivé: Organisation intelligente (1 vidéo = pas de sous-dossier)
+
+**💡 Recommandations:**
+- Usage normal: Activez les 2 options de suppression → garde uniquement vidéos finales
+- Archivage: Désactivez tout → conserve toutes les frames
+- Économie progressive: Activez uniquement "Delete input frames"
+
 ### 📁 Organisation des Fichiers
 
-L'application organise intelligemment les sorties pour éviter les dossiers inutiles:
-- **1 image seule**: `output/session/nom_upscaled.ext`
-- **Plusieurs images**: `output/session/images/nom_upscaled.ext`
-- **1 vidéo seule**: `output/session/nom_video/...`
-- **Plusieurs vidéos**: `output/session/videos/nom_video/...`
+**Images:**
+- 1 seule: `output/session/nom_upscaled.ext`
+- Plusieurs: `output/session/images/nom_upscaled.ext`
 
-Chaque vidéo contient:
+**Vidéos (avec "Organize videos" activé - défaut):**
+- Toujours: `output/session/videos/nom_video/...`
+
+**Vidéos (avec "Organize videos" désactivé):**
+- 1 seule: `output/session/nom_video/...`
+- Plusieurs: `output/session/videos/nom_video/...`
+
+Chaque vidéo contient (si auto-cleanup désactivé):
 - `input/`: Frames originales extraites
 - `output/`: Frames upscalées
-- `nom_video_upscaled.mp4/.mov`: Vidéo encodée (si export activé)
+- `nom_video_upscaled.mp4/.mov`: Vidéo encodée
 
 ### 💡 Conseils
-- **Ani4VK-v2-Compact** est recommandé pour la plupart des cas d'usage
+- **🧪 Test**: Testez avec le premier fichier uploadé (image ou vidéo) avant batch complet
+- **Ani4K v2 Compact** recommandé pour anime moderne (meilleur équilibre vitesse/qualité)
 - Les modèles d'upscaling traitent uniquement RGB, le canal alpha est copié séparément
 - Utilisez le sharpening avec modération pour éviter les artifacts
+- Activez Auto-Cleanup pour économiser de l'espace disque (surtout pour vidéos)
 - Format JPEG/WebP recommandé pour réduire la taille (qualité 90-95)
 - Pour les vidéos sans transparence, H.264 ou H.265 offrent la meilleure compression
 
@@ -931,11 +1191,19 @@ Chaque vidéo contient:
             [profile_select]
         )
 
+        test_btn.click(
+            test_image_upscale,
+            [file_input, model_select, tile_slider, tile_overlap_slider, output_format_select, jpeg_quality_slider,
+             sharpening_slider, contrast_slider, saturation_slider, use_fp16_check, preserve_alpha_check],
+            [comparison_slider, test_status]
+        )
+
         process_btn.click(
             process_batch,
             [file_input, model_select, tile_slider, tile_overlap_slider, output_format_select, jpeg_quality_slider,
              sharpening_slider, contrast_slider, saturation_slider, use_fp16_check,
-             codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check],
+             codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check, keep_audio_check, frame_format_select,
+             auto_delete_input_frames, auto_delete_output_frames, organize_videos_folder],
             [comparison_slider, gallery, status, output_folder, frame_slider, frame_label, download_info]
         )
 
@@ -959,7 +1227,7 @@ if __name__ == "__main__":
     
     # Pre-load default model
     try:
-        load_model("2x_Ani4Kv2_Compact")
+        load_model("Ani4K v2 Compact (Recommended)")
     except Exception as e:
         print(f"⚠️ Loading error: {e}")
     
