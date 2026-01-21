@@ -1581,8 +1581,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     frames_skipped += 1
 
                     # Load cached result for UI preview only
-                    result = Image.open(cached_output_path)
-                    orig = Image.open(fp)
+                    # CRITICAL: Create in-memory copies to avoid "Operation on closed image" error
+                    with Image.open(cached_output_path) as result_file:
+                        result = result_file.copy()
+                    with Image.open(fp) as orig_file:
+                        orig = orig_file.copy()
 
                 else:
                     # UNIQUE FRAME: Upscale normally
