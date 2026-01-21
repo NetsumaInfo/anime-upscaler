@@ -43,7 +43,7 @@ TRANSLATIONS = {
         "select_model": "Sélectionner le Modèle",
         "output_format_title": "⚙️ Format de Sortie & Taille",
         "image_scale_label": "🔢 Échelle finale de l'image",
-        "image_scale_info": "×2 = 1 passe | ×3 = 2 passes (2x→4x) puis downscale | ×4 = 2 passes (2x→2x)",
+        "image_scale_info": "×1 = upscale puis redimension (qualité++) | ×2 = 1 passe | ×3 = 2 passes puis downscale | ×4 = 2 passes",
         "final_output_format": "Format de Sortie Final",
         "jpeg_quality": "Qualité JPEG/WebP",
         "video_frame_format": "🎬 Format Intermédiaire des Frames Vidéo",
@@ -126,7 +126,7 @@ TRANSLATIONS = {
         "select_model": "Select Model",
         "output_format_title": "⚙️ Output Format & Size",
         "image_scale_label": "🔢 Final Image Scale",
-        "image_scale_info": "×2 = 1 pass | ×3 = 2 passes (2x→4x) then downscale | ×4 = 2 passes (2x→2x)",
+        "image_scale_info": "×1 = upscale then resize (quality++) | ×2 = 1 pass | ×3 = 2 passes then downscale | ×4 = 2 passes",
         "final_output_format": "Final Output Format",
         "jpeg_quality": "JPEG/WebP Quality",
         "video_frame_format": "🎬 Video Frame Intermediate Format",
@@ -268,7 +268,7 @@ DEFAULT_EXPORT_SETTINGS = {
     "codec": "H.264 (AVC)",
     "profile": "High (Better)",
     "fps": 0,  # 0 = use original FPS
-    "preserve_alpha": True,
+    "preserve_alpha": False,
     "target_resolution": 0  # 0 = Auto (pas de resize), comportement actuel préservé
 }
 
@@ -1371,7 +1371,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     use_fp16 = (precision_mode == "FP16 (Half Precision)")
 
     # Conversion ×2/×3/×4 → float pour images
-    scale_mapping = {"×2": 2.0, "×3": 3.0, "×4": 4.0}
+    scale_mapping = {"×1": 1.0, "×2": 2.0, "×3": 3.0, "×4": 4.0}
     image_target_scale = scale_mapping.get(image_scale_radio, 2.0)
 
     # Résolution cible pour vidéos (déjà un int : 0, 720, 1080, etc.)
@@ -1856,7 +1856,7 @@ def test_image_upscale(uploaded_files, model, image_scale_radio, video_resolutio
     use_fp16 = (precision_mode == "FP16 (Half Precision)")
 
     # Conversion ×2/×3/×4 → float pour images (test utilise toujours l'échelle image)
-    scale_mapping = {"×2": 2.0, "×3": 3.0, "×4": 4.0}
+    scale_mapping = {"×1": 1.0, "×2": 2.0, "×3": 3.0, "×4": 4.0}
     image_target_scale = scale_mapping.get(image_scale_radio, 2.0)
 
     # Determine parameters based on AUTO mode
@@ -1951,7 +1951,13 @@ def create_app():
                         type="filepath",
                         file_count="multiple"
                     )
-                    file_summary = gr.Textbox(label=t['files_summary'], interactive=False, value=t['no_files'])
+                    file_summary = gr.Textbox(
+                        label=t['files_summary'],
+                        interactive=False,
+                        value=t['no_files'],
+                        lines=5,
+                        max_lines=10
+                    )
 
                 model_accordion = gr.Accordion(t['ai_model_title'], open=True)
                 with model_accordion:
@@ -1965,7 +1971,7 @@ def create_app():
                 with format_accordion:
                     # NOUVEAU: Sélecteur d'échelle pour images
                     image_scale_radio = gr.Radio(
-                        choices=["×2", "×3", "×4"],
+                        choices=["×1", "×2", "×3", "×4"],
                         value="×2",
                         label=t['image_scale_label'],
                         info=t['image_scale_info']
@@ -2183,11 +2189,18 @@ def create_app():
 
 **🏆 Ani4K v2 Compact** est recommandé pour la plupart des usages: excellent équilibre vitesse/qualité pour anime moderne.
 
-**➕ Ajouter vos propres modèles:**
-- Placez vos modèles (.pth, .safetensors) dans le dossier `models/`
-- Formats supportés: PyTorch (.pth), SafeTensors (.safetensors)
-- Source: [OpenModelDB](https://openmodeldb.info/) ou [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
-- Les modèles sont détectés automatiquement au démarrage
+**➕ Ajouter vos propres modèles personnalisés:**
+
+Vous pouvez facilement utiliser vos propres modèles d'upscaling !
+
+1. **Téléchargez** des modèles depuis :
+   - [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub/releases) - Spécialisé anime/cartoon
+   - [OpenModelDB](https://openmodeldb.info/) - Tous types d'images
+2. **Placez** vos fichiers `.pth` ou `.safetensors` dans le dossier `models/`
+3. **Redémarrez** l'application
+4. **✨ Détection automatique** - Vos modèles apparaissent dans la liste !
+
+💡 **Formats supportés:** PyTorch (.pth), SafeTensors (.safetensors)
 
 ### ⚙️ Paramètres d'Upscaling
 

@@ -13,7 +13,7 @@ Application d'upscaling 2x optimisée pour les anime et dessins animés, avec tr
 - **🌐 Interface Multilingue** - Français/Anglais avec changement instantané (v2.3)
 - **📊 Résumé Fichiers Enrichi** - Affichage des dimensions (largeur×hauteur) pour chaque fichier (NOUVEAU v2.3.1)
 - **📥 Infos Téléchargement Détaillées** - Nom, taille, chemin complet des fichiers générés (NOUVEAU v2.3.1)
-- **🖼️ Upscaling 2x AI** - 10 modèles spécialisés depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
+- **🖼️ Upscaling Flexible** - Échelles ×1 (qualité++), ×2, ×3, ×4 avec 10 modèles AI spécialisés depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 - **📦 Traitement Batch** - Images et vidéos multiples simultanément
 - **🎬 Export Vidéo Pro** - H.264, H.265, ProRes, DNxHD/HR
 - **✨ Post-Processing** - Sharpening, contraste, saturation
@@ -136,14 +136,23 @@ L'application télécharge automatiquement **10 modèles spécialisés** lors de
 - 🏆 **OpenProteus Compact** - Alternative Topaz
 - ⚡ AniScale2 Compact - Très rapide
 
-### Ajouter Vos Modèles
+### Ajouter Vos Modèles Personnalisés
 
-1. Téléchargez des modèles depuis [OpenModelDB](https://openmodeldb.info/) ou [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
-2. Placez-les dans le dossier `models/`
-3. Formats supportés: `.pth`, `.safetensors`
-4. Redémarrez l'application
+Vous pouvez facilement ajouter vos propres modèles d'upscaling :
 
-Les modèles sont détectés automatiquement et apparaissent dans la liste!
+1. **Téléchargez** des modèles depuis :
+   - [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub/releases) (spécialisé anime/cartoon)
+   - [OpenModelDB](https://openmodeldb.info/) (tous types d'images)
+
+2. **Placez-les** dans le dossier `models/` de l'application
+
+3. **Formats supportés** : `.pth`, `.safetensors`
+
+4. **Redémarrez** l'application
+
+**✨ Détection automatique :** Les modèles sont scannés au démarrage et apparaissent automatiquement dans la liste de sélection !
+
+**💡 Astuce :** Les modèles 2x sont optimaux car l'application peut faire plusieurs passes pour atteindre ×3 ou ×4.
 
 ## ⚙️ Paramètres Détaillés
 
@@ -157,6 +166,24 @@ Les modèles sont détectés automatiquement et apparaissent dans la liste!
 **Tile Overlap** - Chevauchement entre tuiles (16-64px)
 - Plus grand = meilleur blending, plus lent
 - Plus petit = plus rapide, possibles artifacts
+
+### Image Scale (Échelle finale)
+
+Contrôle l'échelle finale de vos images après upscaling :
+
+- **×1** : Upscale 2x puis redimensionne à la taille originale
+  - 💡 **Améliore la qualité** sans changer les dimensions
+  - Idéal pour nettoyer/améliorer des images sans modifier leur taille
+  - Technique : upscale → downscale intelligent = meilleure qualité
+- **×2** : Upscaling standard 2x (1 passe)
+  - Recommandé par défaut
+  - Double la résolution (ex: 1920×1080 → 3840×2160)
+- **×3** : Upscaling 3x via multi-passes
+  - 2 passes : 2x → 4x, puis downscale à ×3
+  - Plus lent mais qualité supérieure
+- **×4** : Upscaling 4x via multi-passes
+  - 2 passes : 2x → 2x
+  - Quadruple la résolution
 
 ### Output Format (Final)
 
@@ -499,6 +526,10 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 **Corrections:**
 - ✅ Section "Informations de Téléchargement" maintenant remplie automatiquement après traitement
 - ✅ Images ajoutées à la liste download_files (était seulement vidéos avant)
+- 🐛 **BUGFIX CRITIQUE** : Correction "Operation on closed image" lors du traitement vidéo
+  - Images dupliquées : Utilisation de `.copy()` pour créer copies en mémoire indépendantes
+  - Images uniques : Suppression double fermeture de `img` (déjà fermé via `orig.close()`)
+  - Affecte traitement vidéo avec détection de frames dupliquées activée
 
 ### Version 2.3 (2026-01-21)
 
