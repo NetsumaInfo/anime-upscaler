@@ -575,10 +575,10 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 - 📁 **Upload multi-fichiers amélioré** - ajoutez autant de fichiers que vous voulez
 - 🎬 **FPS par défaut = 0** (préserve FPS original automatiquement)
 
-**Modèles remplacés:**
-- ❌ Anciens modèles Kim2091 (AnimeSharpV4, AnimeSharpV4-Fast)
+**Modèles:**
 - ✅ Nouveaux modèles Upscale-Hub spécialisés par type de contenu
 - 🏆 Ani4K v2 Compact recommandé par défaut (équilibre vitesse/qualité)
+- ⚡ Téléchargement et installation plus rapides
 
 **Améliorations:**
 - 📥 install.bat télécharge automatiquement les 10 modèles
