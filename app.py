@@ -1454,7 +1454,9 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
             frame_pairs.append((rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result)))
 
             # Free memory from PIL images
-            img.close()
+            # NOTE: img and orig are the same reference, so only close once
+            orig.close()
+            result.close()
             del img, result, orig, orig_resized
 
             # Clear GPU cache every 5 images to prevent memory accumulation
@@ -1612,7 +1614,8 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     upscaled_cache[unique_frame_path] = str(saved_path)
                     frames_upscaled += 1
 
-                    img.close()
+                    # NOTE: Don't close img here because orig is the same reference
+                    # It will be closed later via orig.close() at line ~1626
 
                 # UI updates (same for both duplicate and unique frames)
                 all_results.append(rgba_to_rgb_for_display(result))
