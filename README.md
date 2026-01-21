@@ -2,15 +2,17 @@
 
 Application d'upscaling 2x optimisée pour les anime et dessins animés, avec traitement batch et export vidéo professionnel.
 
-![Version](https://img.shields.io/badge/version-2.2-blue)
+![Version](https://img.shields.io/badge/version-2.3.1-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![CUDA](https://img.shields.io/badge/CUDA-supported-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**🔗 Repository:** [https://github.com/NetsumaInfo/anime-upscaler](https://github.com/NetsumaInfo/anime-upscaler)
 
 ## ✨ Fonctionnalités
 
+- **🌐 Interface Multilingue** - Français/Anglais avec changement instantané (v2.3)
+- **📊 Résumé Fichiers Enrichi** - Affichage des dimensions (largeur×hauteur) pour chaque fichier (NOUVEAU v2.3.1)
+- **📥 Infos Téléchargement Détaillées** - Nom, taille, chemin complet des fichiers générés (NOUVEAU v2.3.1)
 - **🖼️ Upscaling 2x AI** - 10 modèles spécialisés depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub)
 - **📦 Traitement Batch** - Images et vidéos multiples simultanément
 - **🎬 Export Vidéo Pro** - H.264, H.265, ProRes, DNxHD/HR
@@ -77,6 +79,8 @@ python app.py
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│  🎨 Anime Upscaler         🌐 Français / English (NOUVEAU)  │
+├─────────────────────────────────────────────────────────────┤
 │  📁 Input Files                    │  ⚖️ Compare           │
 │  - Upload images/videos            │  - Before/After       │
 │                                     │  - Frame navigation   │
@@ -468,6 +472,49 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 ## 📝 Changelog
 
+### Version 2.3.1 (2026-01-21)
+
+**Nouvelles fonctionnalités:**
+- 📊 **Résumé Fichiers Enrichi** - Affichage automatique des dimensions pour chaque fichier
+  - **Images** : Nom + dimensions (ex: `photo.jpg (1920×1080)`) obtenues via PIL
+  - **Vidéos** : Nom + résolution (ex: `video.mp4 (1280×720)`) obtenues via FFprobe
+  - Affichage ligne par ligne pour meilleure lisibilité
+  - Gestion d'erreurs si dimensions illisibles
+- 📥 **Informations de Téléchargement Détaillées** - Section complète après traitement
+  - Nom du fichier avec extension
+  - Taille du fichier (B/KB/MB/GB) calculée automatiquement
+  - Chemin complet vers le fichier pour accès rapide
+  - Nombre total de fichiers générés
+  - Format :
+    ```
+    📥 2 file(s) ready:
+
+    • image_upscaled.png (5.2 MB)
+      📁 s:\projet_app\app upscale\output\20260121_123456\image_upscaled.png
+
+    • video_upscaled.mp4 (125.3 MB)
+      📁 s:\projet_app\app upscale\output\20260121_123456\video_upscaled.mp4
+    ```
+
+**Corrections:**
+- ✅ Section "Informations de Téléchargement" maintenant remplie automatiquement après traitement
+- ✅ Images ajoutées à la liste download_files (était seulement vidéos avant)
+
+### Version 2.3 (2026-01-21)
+
+**Nouvelles fonctionnalités:**
+- 🌐 **Interface Multilingue** - Support complet Français/Anglais
+  - Sélecteur de langue en haut à droite (Français / English)
+  - Changement instantané sans rechargement de page
+  - Tous les textes UI traduits (boutons, labels, tooltips, accordéons)
+  - Plus de 51 composants mis à jour dynamiquement
+  - Langue par défaut: Français (détection locale système)
+- 📚 **Documentation complète** - README et CLAUDE.md mis à jour avec v2.3
+
+**Nettoyage:**
+- Suppression des fichiers de test inutilisés
+- Nettoyage du dossier output
+
 ### Version 2.2 (2026-01-19)
 
 **Nouvelles fonctionnalités:**
@@ -572,4 +619,3 @@ Les images/vidéos upscalées sont soumises à la licence CC-BY-NC-SA-4.0 du mod
 
 **Développé avec ❤️ pour la communauté anime**
 
-*Pour toute question ou problème, ouvrez une issue sur GitHub.*
