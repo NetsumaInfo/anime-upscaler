@@ -42,8 +42,8 @@ TRANSLATIONS = {
         "ai_model_title": "🤖 Modèle IA",
         "select_model": "Sélectionner le Modèle",
         "output_format_title": "⚙️ Format de Sortie & Taille",
-        "downscale_1080p": "📐 Redimensionner à 1080p (hauteur max)",
-        "downscale_1080p_info": "Limiter la hauteur de sortie à 1080px si le résultat upscalé dépasse cette résolution",
+        "image_scale_label": "🔢 Échelle finale de l'image",
+        "image_scale_info": "×2 = 1 passe | ×3 = 2 passes (2x→4x) puis downscale | ×4 = 2 passes (2x→2x)",
         "final_output_format": "Format de Sortie Final",
         "jpeg_quality": "Qualité JPEG/WebP",
         "video_frame_format": "🎬 Format Intermédiaire des Frames Vidéo",
@@ -67,6 +67,8 @@ TRANSLATIONS = {
         "precision_mode": "Mode de Précision",
         "precision_info": "FP16: Plus rapide avec CUDA, 50% moins de VRAM, précision légèrement réduite | FP32: Plus lent, plus de VRAM, précision maximale",
         "video_export_title": "🎬 Paramètres d'Export Vidéo",
+        "video_resolution_label": "📐 Résolution vidéo cible",
+        "video_resolution_info": "Upscale intelligent multi-passes puis redimensionnement (Auto = 1 passe 2x, pas de resize)",
         "export_videos": "Exporter les vidéos (pas seulement les frames)",
         "video_codec": "Codec Vidéo",
         "codec_profile": "Profil du Codec",
@@ -123,8 +125,8 @@ TRANSLATIONS = {
         "ai_model_title": "🤖 AI Model",
         "select_model": "Select Model",
         "output_format_title": "⚙️ Output Format & Size",
-        "downscale_1080p": "📐 Downscale to 1080p (max height)",
-        "downscale_1080p_info": "Limit output height to 1080px if upscaled result exceeds this resolution",
+        "image_scale_label": "🔢 Final Image Scale",
+        "image_scale_info": "×2 = 1 pass | ×3 = 2 passes (2x→4x) then downscale | ×4 = 2 passes (2x→2x)",
         "final_output_format": "Final Output Format",
         "jpeg_quality": "JPEG/WebP Quality",
         "video_frame_format": "🎬 Video Frame Intermediate Format",
@@ -148,6 +150,8 @@ TRANSLATIONS = {
         "precision_mode": "Precision Mode",
         "precision_info": "FP16: Faster on CUDA, 50% less VRAM, slightly lower precision | FP32: Slower, more VRAM, maximum precision",
         "video_export_title": "🎬 Video Export Settings",
+        "video_resolution_label": "📐 Target Video Resolution",
+        "video_resolution_info": "Smart multi-pass upscale then resize (Auto = 1 pass 2x, no resize)",
         "export_videos": "Export videos (not just frames)",
         "video_codec": "Video Codec",
         "codec_profile": "Codec Profile",
@@ -264,7 +268,8 @@ DEFAULT_EXPORT_SETTINGS = {
     "codec": "H.264 (AVC)",
     "profile": "High (Better)",
     "fps": 0,  # 0 = use original FPS
-    "preserve_alpha": True
+    "preserve_alpha": True,
+    "target_resolution": 0  # 0 = Auto (pas de resize), comportement actuel préservé
 }
 
 # Frame intermediate format settings
@@ -286,7 +291,7 @@ DEFAULT_UPSCALING_SETTINGS = {
     "contrast": 1.0,    # AUTO: No contrast adjustment
     "saturation": 1.0,  # AUTO: No saturation adjustment
     "use_fp16": True,
-    "downscale_to_1080p": False
+    "image_target_scale": 2.0  # ×2 par défaut (comportement actuel préservé)
 }
 
 # Default models with download URLs from Upscale-Hub (https://github.com/Sirosky/Upscale-Hub)
@@ -539,6 +544,96 @@ def resize_to_1080p(img: Image.Image) -> Image.Image:
 
     return img
 
+def calculate_upscale_passes(original_height: int, target_height: int) -> int:
+    """
+    Calcule le nombre de passes 2x nécessaires pour atteindre ou dépasser la résolution cible.
+
+    Args:
+        original_height: Hauteur de l'image source
+        target_height: Hauteur cible souhaitée
+
+    Returns:
+        Nombre de passes 2x à effectuer (minimum 1)
+
+    Exemples:
+        480p → 1080p: 480 * 2 = 960 (< 1080), 960 * 2 = 1920 (> 1080) → 2 passes
+        1080p → 1080p: 1080 * 2 = 2160 (> 1080) → 1 passe
+        720p → 4K (2160p): 720 * 2 = 1440 (< 2160), 1440 * 2 = 2880 (> 2160) → 2 passes
+    """
+    if target_height == 0:
+        return 1  # Auto mode: 1 passe seulement
+
+    current_height = original_height
+    passes = 0
+
+    # Calculer combien de passes 2x pour dépasser la cible
+    while current_height < target_height:
+        current_height *= 2
+        passes += 1
+
+    # Si déjà au-dessus de la cible, au moins 1 passe
+    if passes == 0:
+        passes = 1
+
+    return passes
+
+def resize_to_target_resolution(img: Image.Image, target_height: int, original_aspect_ratio: float) -> Image.Image:
+    """
+    Redimensionne l'image vers une hauteur cible en préservant l'aspect ratio.
+
+    Args:
+        img: Image à redimensionner
+        target_height: Hauteur cible (0 = pas de resize)
+        original_aspect_ratio: Ratio largeur/hauteur de l'image originale (width/height)
+
+    Returns:
+        Image redimensionnée avec LANCZOS
+
+    Exemples:
+        Image 3840×2160 (16:9) → cible 1080p → 1920×1080 (préserve 16:9)
+        Image 2880×2160 (4:3) → cible 1080p → 1440×1080 (préserve 4:3)
+    """
+    if target_height == 0:
+        return img  # Auto mode: pas de redimensionnement
+
+    current_width, current_height = img.size
+
+    if current_height == target_height:
+        return img  # Déjà à la bonne résolution
+
+    # Calculer largeur proportionnelle pour préserver aspect ratio original
+    target_width = int(target_height * original_aspect_ratio)
+
+    # LANCZOS pour haute qualité (downscale OU upscale)
+    return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+def resize_to_target_scale(img: Image.Image, target_scale: float, original_size: tuple) -> Image.Image:
+    """
+    Redimensionne l'image vers un facteur d'échelle cible.
+
+    Args:
+        img: Image upscalée (peut avoir été upscalée plusieurs fois)
+        target_scale: Facteur d'échelle final souhaité (2.0, 3.0, 4.0)
+        original_size: (width, height) de l'image originale
+
+    Returns:
+        Image redimensionnée avec LANCZOS
+
+    Exemples:
+        Original 1000×1000, upscalé 2x → 2000×2000, target_scale=2.0 → 2000×2000 (aucun resize)
+        Original 1000×1000, upscalé 4x → 4000×4000, target_scale=3.0 → 3000×3000 (downscale)
+    """
+    orig_width, orig_height = original_size
+    target_width = int(orig_width * target_scale)
+    target_height = int(orig_height * target_scale)
+
+    current_width, current_height = img.size
+
+    if current_width == target_width and current_height == target_height:
+        return img  # Déjà à la bonne taille
+
+    return img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
 def apply_dithering(img_float: np.ndarray, enable: bool = True) -> np.ndarray:
     """Apply dithering to reduce banding artifacts during float->uint8 conversion
 
@@ -629,56 +724,43 @@ def create_gaussian_weight_map(tile_h: int, tile_w: int, overlap: int) -> np.nda
 
     return weight
 
-def upscale_image(img: Image.Image, model_name: str,
-                 preserve_alpha: bool = False, output_format: str = "PNG", jpeg_quality: int = 95,
-                 use_fp16: bool = True, downscale_to_1080p: bool = False,
-                 tile_size: int = None, tile_overlap: int = None,
-                 sharpening: float = None, contrast: float = None, saturation: float = None):
-    """Upscale image with tile-based processing (AUTO or custom settings)"""
-    # Use AUTO settings if not provided (model decides quality, not user)
-    tile_size = tile_size if tile_size is not None else DEFAULT_UPSCALING_SETTINGS["tile_size"]
-    tile_overlap = tile_overlap if tile_overlap is not None else DEFAULT_UPSCALING_SETTINGS["tile_overlap"]
-    sharpening = sharpening if sharpening is not None else DEFAULT_UPSCALING_SETTINGS["sharpening"]
-    contrast = contrast if contrast is not None else DEFAULT_UPSCALING_SETTINGS["contrast"]
-    saturation = saturation if saturation is not None else DEFAULT_UPSCALING_SETTINGS["saturation"]
-    model = load_model(model_name, use_fp16)
-    scale = MODELS[model_name]["scale"]
+def _upscale_single_pass(
+    img: Image.Image,
+    model,
+    scale: int,
+    tile_size: int,
+    tile_overlap: int,
+    use_fp16: bool
+) -> Image.Image:
+    """
+    Effectue UNE SEULE passe d'upscaling 2x.
+    Fonction interne utilisée par upscale_image() pour le multi-passes.
 
-    # CRITICAL: Remove ICC profile to prevent color shifts (like chaiNNer does)
-    # PIL automatically converts ICC profiles which can cause red/color shifts
-    if 'icc_profile' in img.info:
-        # Create new image without ICC profile
-        img_data = img.tobytes()
-        img = Image.frombytes(img.mode, img.size, img_data)
+    Args:
+        img: Image PIL en mode RGB
+        model: Modèle Spandrel chargé
+        scale: Facteur d'échelle du modèle (toujours 2)
+        tile_size: Taille des tuiles
+        tile_overlap: Chevauchement des tuiles
+        use_fp16: Utiliser FP16 pour accélérer
 
-    # Store original alpha channel if present
-    original_alpha = None
-    if img.mode in ('RGBA', 'LA') and preserve_alpha:
-        original_alpha = img.getchannel('A')
-
-    # Convert to RGB without color profile conversion (preserve exact colors like chaiNNer)
-    if img.mode != 'RGB':
-        # For RGBA: extract RGB channels directly without conversion
-        if img.mode == 'RGBA':
-            img = Image.fromarray(np.array(img)[:, :, :3], mode='RGB')
-        else:
-            img = img.convert('RGB')
-
+    Returns:
+        Image upscalée 2x en mode RGB
+    """
     # Get numpy array - ensure no color space conversion
     img_np = np.array(img, dtype=np.float32) / 255.0
 
     # Convert to tensor (FIXED: separate dtype conversion from device transfer to prevent artifacts)
-    # Based on PyTorch best practices: create tensor in float32, transfer to GPU, then convert dtype
     img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0)
 
-    # Apply FP16 conversion AFTER tensor creation (prevents precision loss during numpy->torch conversion)
+    # Apply FP16 conversion AFTER tensor creation
     if DEVICE == "cuda" and use_fp16:
         try:
-            img_tensor = img_tensor.half()  # Separate conversion step
+            img_tensor = img_tensor.half()
         except:
             pass  # Fallback to FP32 if conversion fails
 
-    img_tensor = img_tensor.to(DEVICE)  # Transfer to GPU after dtype is set
+    img_tensor = img_tensor.to(DEVICE)
 
     h, w = img_np.shape[:2]
 
@@ -688,14 +770,14 @@ def upscale_image(img: Image.Image, model_name: str,
             output = model(img_tensor)
         output = output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
 
-        # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output (some models produce these)
+        # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output
         if not np.isfinite(output).all():
             print(f"⚠️ Warning: NaN/Inf in model output, cleaning (model may be unstable)")
             output = np.nan_to_num(output, nan=0.0, posinf=1.0, neginf=0.0)
 
-        # Clip to [0,1] BEFORE scaling to prevent artifacts from out-of-range values
+        # Clip to [0,1] BEFORE scaling
         output = np.clip(output, 0.0, 1.0)
-        # Convert float [0,1] to uint8 [0,255] properly to preserve exact colors
+        # Convert float [0,1] to uint8 [0,255]
         output_uint8 = (output * 255.0).round().astype(np.uint8)
         result_img = Image.fromarray(output_uint8, mode='RGB')
 
@@ -704,22 +786,9 @@ def upscale_image(img: Image.Image, model_name: str,
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
 
-        # Apply post-processing
-        result_img = apply_post_processing(result_img, sharpening, contrast, saturation)
+        return result_img
 
-        # Apply 1080p downscale if enabled
-        if downscale_to_1080p:
-            result_img = resize_to_1080p(result_img)
-
-        # Apply preserved alpha channel
-        if original_alpha is not None:
-            upscaled_alpha = original_alpha.resize((result_img.width, result_img.height), Image.Resampling.LANCZOS)
-            result_img = result_img.convert('RGBA')
-            result_img.putalpha(upscaled_alpha)
-
-        return result_img, img
-
-    # Tile-based processing for large images (optimized with Gaussian blending)
+    # Tile-based processing for large images
     result = np.zeros((h * scale, w * scale, 3), dtype=np.float32)
     weight = np.zeros((h * scale, w * scale, 3), dtype=np.float32)
 
@@ -730,7 +799,7 @@ def upscale_image(img: Image.Image, model_name: str,
             x_end = min(x + tile_size, w)
             tile = img_np[y:y_end, x:x_end]
 
-            # Convert tile using FIXED method (separate dtype conversion from device transfer)
+            # Convert tile using FIXED method
             tile_tensor = torch.from_numpy(tile).permute(2, 0, 1).unsqueeze(0)
 
             # Apply FP16 conversion AFTER tensor creation
@@ -747,21 +816,21 @@ def upscale_image(img: Image.Image, model_name: str,
 
             tile_output = tile_output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
 
-            # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output (some models produce these)
+            # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output
             if not np.isfinite(tile_output).all():
                 print(f"⚠️ Warning: NaN/Inf in tile output, cleaning (model may be unstable)")
                 tile_output = np.nan_to_num(tile_output, nan=0.0, posinf=1.0, neginf=0.0)
 
-            # Clip tile output to [0,1] IMMEDIATELY to prevent artifacts accumulation
+            # Clip tile output to [0,1] IMMEDIATELY
             tile_output = np.clip(tile_output, 0.0, 1.0)
 
             y_out, x_out = y * scale, x * scale
             th, tw = tile_output.shape[:2]
 
-            # Create Gaussian weight map for this tile (smooth blending in overlap regions)
+            # Create Gaussian weight map for this tile
             tile_weight = create_gaussian_weight_map(th, tw, tile_overlap * scale)
 
-            # Apply weighted blending (Gaussian feathering reduces artifacts by 0.3-0.6 dB)
+            # Apply weighted blending
             result[y_out:y_out+th, x_out:x_out+tw] += tile_output * tile_weight
             weight[y_out:y_out+th, x_out:x_out+tw] += tile_weight
 
@@ -772,22 +841,98 @@ def upscale_image(img: Image.Image, model_name: str,
     if DEVICE == "cuda":
         torch.cuda.empty_cache()
 
-    # Normalize by weight (blended result already in [0,1] range)
-    result = result / np.maximum(weight, 1e-8)  # Use small epsilon to avoid division by zero
+    # Normalize by weight
+    result = result / np.maximum(weight, 1e-8)
 
     # FINAL clipping: ensure [0,1] range before conversion
     result = np.clip(result, 0.0, 1.0)
 
-    # Convert float [0,1] to uint8 [0,255] properly to preserve exact colors
+    # Convert float [0,1] to uint8 [0,255]
     result_uint8 = (result * 255.0).round().astype(np.uint8)
     result_img = Image.fromarray(result_uint8, mode='RGB')
 
-    # Apply post-processing
+    return result_img
+
+def upscale_image(img: Image.Image, model_name: str,
+                 preserve_alpha: bool = False, output_format: str = "PNG", jpeg_quality: int = 95,
+                 use_fp16: bool = True, downscale_to_1080p: bool = False,
+                 tile_size: int = None, tile_overlap: int = None,
+                 sharpening: float = None, contrast: float = None, saturation: float = None,
+                 target_scale: float = 2.0, target_resolution: int = 0, is_video_frame: bool = False):
+    """Upscale image with tile-based processing and multi-pass support (AUTO or custom settings)"""
+    # Use AUTO settings if not provided (model decides quality, not user)
+    tile_size = tile_size if tile_size is not None else DEFAULT_UPSCALING_SETTINGS["tile_size"]
+    tile_overlap = tile_overlap if tile_overlap is not None else DEFAULT_UPSCALING_SETTINGS["tile_overlap"]
+    sharpening = sharpening if sharpening is not None else DEFAULT_UPSCALING_SETTINGS["sharpening"]
+    contrast = contrast if contrast is not None else DEFAULT_UPSCALING_SETTINGS["contrast"]
+    saturation = saturation if saturation is not None else DEFAULT_UPSCALING_SETTINGS["saturation"]
+    model = load_model(model_name, use_fp16)
+    scale = MODELS[model_name]["scale"]
+
+    # Stocker dimensions et aspect ratio originaux (AVANT toute transformation)
+    original_width, original_height = img.size
+    original_aspect_ratio = original_width / original_height
+
+    # Calculer le nombre de passes nécessaires
+    if is_video_frame and target_resolution > 0:
+        # Pour vidéos: calculer passes pour atteindre résolution cible
+        num_passes = calculate_upscale_passes(original_height, target_resolution)
+    elif not is_video_frame and target_scale > 2.0:
+        # Pour images: calculer passes pour scale cible
+        # ×2 = 1 passe, ×3 = 2 passes (2x → 4x puis downscale), ×4 = 2 passes (2x → 2x)
+        if target_scale <= 2.0:
+            num_passes = 1
+        elif target_scale <= 4.0:
+            num_passes = 2
+        else:
+            num_passes = 3  # Pour ×8 si on veut l'ajouter plus tard
+    else:
+        # Par défaut: 1 passe (comportement actuel)
+        num_passes = 1
+
+    # CRITICAL: Remove ICC profile to prevent color shifts (like chaiNNer does)
+    if 'icc_profile' in img.info:
+        img_data = img.tobytes()
+        img = Image.frombytes(img.mode, img.size, img_data)
+
+    # Store original alpha channel if present
+    original_alpha = None
+    if img.mode in ('RGBA', 'LA') and preserve_alpha:
+        original_alpha = img.getchannel('A')
+
+    # --- BOUCLE MULTI-PASSES D'UPSCALING ---
+    current_img = img
+
+    for pass_num in range(num_passes):
+        # Convert to RGB si nécessaire
+        if current_img.mode != 'RGB':
+            if current_img.mode == 'RGBA':
+                current_img = Image.fromarray(np.array(current_img)[:, :, :3], mode='RGB')
+            else:
+                current_img = current_img.convert('RGB')
+
+        # UNE passe d'upscaling 2x
+        current_img = _upscale_single_pass(
+            current_img,
+            model,
+            scale,
+            tile_size,
+            tile_overlap,
+            use_fp16
+        )
+
+    result_img = current_img
+
+    # Apply post-processing (UNE SEULE FOIS après toutes les passes)
     result_img = apply_post_processing(result_img, sharpening, contrast, saturation)
 
-    # Apply 1080p downscale if enabled
-    if downscale_to_1080p:
-        result_img = resize_to_1080p(result_img)
+    # NOUVEAU : Redimensionnement intelligent selon le type
+    if is_video_frame and target_resolution > 0:
+        # Pour vidéos: redimensionner vers résolution cible avec aspect ratio préservé
+        result_img = resize_to_target_resolution(result_img, target_resolution, original_aspect_ratio)
+    elif not is_video_frame and target_scale != 2.0:
+        # Pour images: redimensionner vers scale cible
+        result_img = resize_to_target_scale(result_img, target_scale, (original_width, original_height))
 
     # Apply preserved alpha channel
     if original_alpha is not None:
@@ -1217,13 +1362,20 @@ def save_image_with_format(img: Image.Image, path: Path, output_format: str, jpe
     else:  # PNG (default)
         img.save(path.with_suffix('.png'), 'PNG', optimize=True, icc_profile=None)
 
-def process_batch(files, model, downscale_to_1080p, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
+def process_batch(files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
                  auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames,
                  use_auto_settings, tile_size, tile_overlap, sharpening, contrast, saturation,
                  video_naming_mode, video_suffix, video_custom_name, progress=gr.Progress()):
     """Process multiple files with video export support, auto-cleanup, and duplicate frame detection"""
     # Convert precision mode to boolean
     use_fp16 = (precision_mode == "FP16 (Half Precision)")
+
+    # Conversion ×2/×3/×4 → float pour images
+    scale_mapping = {"×2": 2.0, "×3": 3.0, "×4": 4.0}
+    image_target_scale = scale_mapping.get(image_scale_radio, 2.0)
+
+    # Résolution cible pour vidéos (déjà un int : 0, 720, 1080, etc.)
+    video_target_resolution = video_resolution_dropdown
 
     # Determine parameters based on AUTO mode
     params = {}
@@ -1281,11 +1433,20 @@ def process_batch(files, model, downscale_to_1080p, output_format, jpeg_quality,
 
             img = Image.open(img_path)
             result, orig = upscale_image(img, model, preserve_alpha,
-                                        output_format, jpeg_quality, use_fp16, downscale_to_1080p, **params)
+                                        output_format, jpeg_quality, use_fp16,
+                                        target_scale=image_target_scale,
+                                        target_resolution=0,
+                                        is_video_frame=False, **params)
 
             img_name = Path(img_path).stem
             output_path = img_session / f"{img_name}_upscaled"
             save_image_with_format(result, output_path, output_format, jpeg_quality)
+
+            # Add to download files list
+            ext_map = {"PNG": ".png", "JPEG": ".jpg", "WebP": ".webp"}
+            final_output_path = output_path.with_suffix(ext_map.get(output_format, ".png"))
+            download_files.append(str(final_output_path))
+
             all_results.append(rgba_to_rgb_for_display(result))
 
             # Store for comparison with white background for display
@@ -1427,7 +1588,10 @@ def process_batch(files, model, downscale_to_1080p, output_format, jpeg_quality,
                     # UNIQUE FRAME: Upscale normally
                     img = Image.open(fp)
                     result, orig = upscale_image(img, model, preserve_alpha,
-                                                output_format, jpeg_quality, use_fp16, downscale_to_1080p, **params)
+                                                output_format, jpeg_quality, use_fp16,
+                                                target_scale=2.0,
+                                                target_resolution=video_target_resolution,
+                                                is_video_frame=True, **params)
                     # Save frame with chosen intermediate format
                     save_frame_with_format(result, frame_path_out, frame_format)
 
@@ -1585,10 +1749,29 @@ def process_batch(files, model, downscale_to_1080p, output_format, jpeg_quality,
     first_pair = frame_pairs[0] if frame_pairs else (None, None)
     final_status = "\n".join(status_messages)
 
-    # Create download links text
+    # Create download links text with full paths
     download_text = ""
     if download_files:
-        download_text = "📥 Files ready:\n" + "\n".join([f"• {Path(f).name}" for f in download_files])
+        file_list = []
+        for f in download_files:
+            file_path = Path(f)
+            # Get file size
+            try:
+                size_bytes = file_path.stat().st_size
+                if size_bytes < 1024:
+                    size_str = f"{size_bytes} B"
+                elif size_bytes < 1024*1024:
+                    size_str = f"{size_bytes/1024:.1f} KB"
+                elif size_bytes < 1024*1024*1024:
+                    size_str = f"{size_bytes/(1024*1024):.1f} MB"
+                else:
+                    size_str = f"{size_bytes/(1024*1024*1024):.2f} GB"
+
+                file_list.append(f"• {file_path.name} ({size_str})\n  📁 {f}")
+            except:
+                file_list.append(f"• {file_path.name}\n  📁 {f}")
+
+        download_text = f"📥 {len(download_files)} file(s) ready:\n\n" + "\n\n".join(file_list)
 
     frame_updates = gr.update(maximum=max(1, len(frame_pairs)), value=1, visible=len(frame_pairs) > 1)
     frame_label_update = gr.update(value=f"Frame 1/{len(frame_pairs)}", visible=len(frame_pairs) > 1)
@@ -1616,7 +1799,7 @@ def update_codec_profiles(codec_name):
     return gr.update(choices=[], value=None)
 
 def show_file_summary(files):
-    """Display summary of uploaded files"""
+    """Display summary of uploaded files with dimensions"""
     if not files:
         return "No files uploaded"
 
@@ -1624,18 +1807,51 @@ def show_file_summary(files):
 
     summary = []
     if images:
-        summary.append(f"📸 {len(images)} image(s)")
+        # Display each image with its dimensions
+        for img_path in images:
+            try:
+                with Image.open(img_path) as img:
+                    width, height = img.size
+                    img_name = Path(img_path).name
+                    summary.append(f"📸 {img_name} ({width}×{height})")
+            except Exception as e:
+                img_name = Path(img_path).name
+                summary.append(f"📸 {img_name} (error reading dimensions)")
+
     if videos:
-        summary.append(f"🎬 {len(videos)} video(s)")
+        # Display each video with its resolution
+        for vid_path in videos:
+            try:
+                vid_name = Path(vid_path).name
+                # Get video resolution using ffprobe
+                result = subprocess.run([
+                    "ffprobe", "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=width,height",
+                    "-of", "csv=p=0",
+                    vid_path
+                ], capture_output=True, text=True)
+                if result.returncode == 0 and result.stdout.strip():
+                    width, height = result.stdout.strip().split(',')
+                    summary.append(f"🎬 {vid_name} ({width}×{height})")
+                else:
+                    summary.append(f"🎬 {vid_name}")
+            except Exception as e:
+                vid_name = Path(vid_path).name
+                summary.append(f"🎬 {vid_name}")
 
-    return " | ".join(summary) if summary else "No valid files"
+    return "\n".join(summary) if summary else "No valid files"
 
-def test_image_upscale(uploaded_files, model, downscale_to_1080p, output_format, jpeg_quality,
+def test_image_upscale(uploaded_files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality,
                        precision_mode, preserve_alpha, use_auto_settings, tile_size, tile_overlap,
                        sharpening, contrast, saturation):
     """Quick test upscale on the first uploaded file (image or video first frame) for testing model"""
     # Convert precision mode to boolean
     use_fp16 = (precision_mode == "FP16 (Half Precision)")
+
+    # Conversion ×2/×3/×4 → float pour images (test utilise toujours l'échelle image)
+    scale_mapping = {"×2": 2.0, "×3": 3.0, "×4": 4.0}
+    image_target_scale = scale_mapping.get(image_scale_radio, 2.0)
 
     # Determine parameters based on AUTO mode
     params = {}
@@ -1692,9 +1908,12 @@ def test_image_upscale(uploaded_files, model, downscale_to_1080p, output_format,
         else:
             return None, gr.update(visible=True, value=f"❌ Unsupported file type ({file_ext}). Please upload an image or video file.")
 
-        # Perform upscaling
+        # Perform upscaling (test uses image scale for both images and videos)
         result, orig = upscale_image(img, model, preserve_alpha,
-                                    output_format, jpeg_quality, use_fp16, downscale_to_1080p, **params)
+                                    output_format, jpeg_quality, use_fp16,
+                                    target_scale=image_target_scale,
+                                    target_resolution=0,
+                                    is_video_frame=False, **params)
 
         # Prepare for display (convert RGBA to RGB with white background if needed)
         orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
@@ -1738,10 +1957,12 @@ def create_app():
 
                 format_accordion = gr.Accordion(t['output_format_title'], open=True)
                 with format_accordion:
-                    downscale_to_1080p_check = gr.Checkbox(
-                        label=t['downscale_1080p'],
-                        value=DEFAULT_UPSCALING_SETTINGS["downscale_to_1080p"],
-                        info=t['downscale_1080p_info']
+                    # NOUVEAU: Sélecteur d'échelle pour images
+                    image_scale_radio = gr.Radio(
+                        choices=["×2", "×3", "×4"],
+                        value="×2",
+                        label=t['image_scale_label'],
+                        info=t['image_scale_info']
                     )
 
                     with gr.Row():
@@ -1812,6 +2033,21 @@ def create_app():
                 video_accordion = gr.Accordion(t['video_export_title'], open=True)
                 with video_accordion:
                     export_video_check = gr.Checkbox(label=t['export_videos'], value=True)
+
+                    # NOUVEAU: Sélecteur de résolution cible pour vidéos
+                    video_resolution_dropdown = gr.Dropdown(
+                        choices=[
+                            ("Auto (2x upscale)", 0),
+                            ("HD 720p", 720),
+                            ("Full HD 1080p", 1080),
+                            ("QHD 1440p", 1440),
+                            ("4K UHD 2160p", 2160),
+                            ("8K UHD 4320p", 4320)
+                        ],
+                        value=0,
+                        label=t['video_resolution_label'],
+                        info=t['video_resolution_info']
+                    )
 
                     codec_select = gr.Dropdown(
                         list(VIDEO_CODECS.keys()),
@@ -2085,7 +2321,7 @@ def create_app():
 
         test_btn.click(
             test_image_upscale,
-            [file_input, model_select, downscale_to_1080p_check, output_format_select, jpeg_quality_slider,
+            [file_input, model_select, image_scale_radio, video_resolution_dropdown, output_format_select, jpeg_quality_slider,
              precision_radio, preserve_alpha_check, use_auto_settings, tile_size_slider, tile_overlap_slider,
              sharpening_slider, contrast_slider, saturation_slider],
             [comparison_slider, test_status]
@@ -2093,7 +2329,7 @@ def create_app():
 
         process_btn.click(
             process_batch,
-            [file_input, model_select, downscale_to_1080p_check, output_format_select, jpeg_quality_slider,
+            [file_input, model_select, image_scale_radio, video_resolution_dropdown, output_format_select, jpeg_quality_slider,
              precision_radio,
              codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check, keep_audio_check, frame_format_select,
              auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames_check,
