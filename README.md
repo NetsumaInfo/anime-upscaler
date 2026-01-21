@@ -3,8 +3,11 @@
 Application d'upscaling 2x optimisée pour les anime et dessins animés, avec traitement batch et export vidéo professionnel.
 
 ![Version](https://img.shields.io/badge/version-2.3.1-blue)
-![Python](https://img.shields.io/badge/python-3.8+-green)
-![CUDA](https://img.shields.io/badge/CUDA-supported-orange)
+![Python](https://img.shields.io/badge/python-3.10+-green)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red)
+![CUDA](https://img.shields.io/badge/CUDA-12.1-orange)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Gradio](https://img.shields.io/badge/Gradio-UI-yellow)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 
@@ -58,7 +61,7 @@ python app.py
 
 ### Prérequis
 
-- **Python** 3.8 ou supérieur
+- **Python** 3.10 ou supérieur
 - **FFmpeg** et **FFprobe** dans le PATH (pour traitement vidéo)
 - **GPU NVIDIA** recommandé (CUDA) pour performance optimale
 - **8GB+ VRAM** recommandé pour vidéos haute résolution
