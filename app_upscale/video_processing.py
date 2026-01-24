@@ -27,8 +27,13 @@ def compute_frame_hash(img_path: str) -> str:
     """
     Compute perceptual hash of frame for duplicate detection.
 
-    Uses perceptual hashing to detect visually identical frames even if they have
-    minor pixel differences from compression artifacts.
+    Uses IMPROVED perceptual hashing with higher resolution (64x64) to reduce
+    false positives while still detecting truly identical frames.
+
+    OPTIMIZED v2.6.3:
+    - Increased from 32x32 to 64x64 for better accuracy
+    - Reduces false positives where similar-but-different frames were incorrectly
+      marked as duplicates (which caused visual artifacts)
 
     Args:
         img_path: Path to frame image file
@@ -40,9 +45,10 @@ def compute_frame_hash(img_path: str) -> str:
         # Convert to RGB
         img_rgb = img.convert('RGB')
 
-        # Resize to 32x32 for perceptual comparison (balances accuracy and tolerance)
-        # Higher resolution = more strict matching, less false positives
-        img_small = img_rgb.resize((32, 32), Image.Resampling.LANCZOS)
+        # Resize to 64x64 for perceptual comparison (IMPROVED from 32x32)
+        # Higher resolution = more strict matching, FEWER false positives
+        # This prevents similar frames from being incorrectly treated as duplicates
+        img_small = img_rgb.resize((64, 64), Image.Resampling.LANCZOS)
 
         # Convert to numpy array
         pixels = np.array(img_small, dtype=np.float32)
