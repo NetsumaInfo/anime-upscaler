@@ -33,9 +33,9 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-:: Check if app.py exists
-if not exist "app.py" (
-    echo ❌ Fichier app.py introuvable!
+:: Check if main.py exists
+if not exist "main.py" (
+    echo ❌ Fichier main.py introuvable!
     echo.
     pause
     exit /b 1
@@ -53,7 +53,7 @@ echo.
 echo ════════════════════════════════════════════════════════════════════════
 echo.
 
-python app.py
+python main.py
 
 if %errorlevel% neq 0 (
     echo.

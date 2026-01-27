@@ -10,6 +10,7 @@ This module handles the complete image upscaling pipeline including:
 """
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image, ImageEnhance
 from pathlib import Path
@@ -23,6 +24,141 @@ from .gpu import get_model_dtype
 # ============================================================================
 # Post-Processing Functions
 # ============================================================================
+
+def apply_post_processing_gpu(
+    img_tensor: torch.Tensor,
+    sharpening: float = 0.0,
+    contrast: float = 1.0,
+    saturation: float = 1.0,
+    cuda_stream=None
+) -> torch.Tensor:
+    """
+    Apply post-processing enhancements directly on GPU using PyTorch.
+
+    This is MUCH faster than CPU PIL operations, especially for large images.
+    Operates on tensor in CHW format (channels, height, width).
+
+    Args:
+        img_tensor: Tensor on GPU with shape (C, H, W) in [0, 1] range
+        sharpening: Sharpening factor (0 = none, 0.5-1.0 = moderate, 1.5-2.0 = strong)
+        contrast: Contrast multiplier (<1.0 = decrease, 1.0 = original, >1.0 = increase)
+        saturation: Saturation multiplier (<1.0 = decrease, 1.0 = original, >1.0 = increase)
+        cuda_stream: Optional CUDA stream for parallel execution
+
+    Returns:
+        Post-processed tensor on GPU, same shape and dtype as input
+    """
+    # Skip if all parameters are default (no processing needed)
+    if sharpening == 0.0 and contrast == 1.0 and saturation == 1.0:
+        return img_tensor
+
+    # Work with the tensor directly (no CPU transfer)
+    processed = img_tensor
+
+    with torch.inference_mode():
+        # Use provided stream if available (for parallel execution)
+        if cuda_stream is not None:
+            with torch.cuda.stream(cuda_stream):
+                processed = _apply_post_processing_ops(processed, sharpening, contrast, saturation)
+        else:
+            processed = _apply_post_processing_ops(processed, sharpening, contrast, saturation)
+
+    return processed
+
+
+def _apply_post_processing_ops(
+    img_tensor: torch.Tensor,
+    sharpening: float,
+    contrast: float,
+    saturation: float
+) -> torch.Tensor:
+    """
+    Internal function to apply post-processing operations.
+    Separated for cleaner stream handling.
+    """
+    processed = img_tensor
+
+    # Sharpening via unsharp mask (GPU convolution)
+    if sharpening > 0:
+        # Unsharp mask kernel (emphasizes edges)
+        # Center value = 9 + sharpening_strength, edges = -1
+        strength = sharpening
+        kernel_center = 9.0 + strength * 8.0
+        kernel = torch.tensor([
+            [-strength, -strength, -strength],
+            [-strength, kernel_center, -strength],
+            [-strength, -strength, -strength]
+        ], dtype=processed.dtype, device=processed.device)
+
+        # Reshape kernel for conv2d: (out_channels, in_channels, H, W)
+        # Apply same kernel to each RGB channel
+        kernel = kernel.view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+
+        # Add batch dimension if needed (conv2d expects NCHW)
+        if processed.dim() == 3:
+            processed = processed.unsqueeze(0)  # CHW -> NCHW
+            remove_batch = True
+        else:
+            remove_batch = False
+
+        # Apply convolution with padding to preserve size
+        processed = F.conv2d(processed, kernel, padding=1, groups=3)
+
+        # Clamp to [0, 1] range after sharpening
+        processed = torch.clamp(processed, 0.0, 1.0)
+
+        if remove_batch:
+            processed = processed.squeeze(0)  # NCHW -> CHW
+
+    # Contrast adjustment (around midpoint 0.5)
+    if contrast != 1.0:
+        # Add batch dim if needed for easier calculation
+        if processed.dim() == 3:
+            processed = processed.unsqueeze(0)
+            remove_batch = True
+        else:
+            remove_batch = False
+
+        # Calculate per-image mean (gray level midpoint)
+        mean = processed.mean(dim=[1, 2, 3], keepdim=True)
+
+        # Apply contrast: new = (old - mean) * contrast + mean
+        processed = (processed - mean) * contrast + mean
+
+        # Clamp to valid range
+        processed = torch.clamp(processed, 0.0, 1.0)
+
+        if remove_batch:
+            processed = processed.squeeze(0)
+
+    # Saturation adjustment (convert to grayscale, then blend)
+    if saturation != 1.0:
+        # Add batch dim if needed
+        if processed.dim() == 3:
+            processed = processed.unsqueeze(0)
+            remove_batch = True
+        else:
+            remove_batch = False
+
+        # Convert to grayscale using standard luminance weights (ITU-R BT.601)
+        # L = 0.299*R + 0.587*G + 0.114*B
+        gray_weights = torch.tensor([0.299, 0.587, 0.114], dtype=processed.dtype, device=processed.device)
+        gray_weights = gray_weights.view(1, 3, 1, 1)  # Shape for broadcasting
+
+        # Compute grayscale (weighted average across RGB channels)
+        gray = (processed * gray_weights).sum(dim=1, keepdim=True)  # (N, 1, H, W)
+
+        # Blend: result = gray * (1 - saturation) + color * saturation
+        processed = gray * (1 - saturation) + processed * saturation
+
+        # Clamp to valid range
+        processed = torch.clamp(processed, 0.0, 1.0)
+
+        if remove_batch:
+            processed = processed.squeeze(0)
+
+    return processed
+
 
 def apply_post_processing(
     img: Image.Image,
@@ -312,7 +448,10 @@ def _upscale_single_pass(
     tile_size: int,
     tile_overlap: int,
     use_fp16: bool,
-    cuda_stream=None
+    cuda_stream=None,
+    sharpening: float = 0.0,
+    contrast: float = 1.0,
+    saturation: float = 1.0
 ) -> Image.Image:
     """
     Perform a SINGLE upscaling pass with optional CUDA stream.
@@ -345,27 +484,46 @@ def _upscale_single_pass(
     else:
         target_dtype = torch.float16 if (DEVICE == "cuda" and use_fp16) else torch.float32
 
-    # Single conversion: numpy -> tensor with target dtype -> GPU
-    img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(
-        dtype=target_dtype, device=DEVICE
-    )
-
     h, w = img_np.shape[:2]
 
     # For small images, process directly (no tiling needed)
     if h * w <= tile_size * tile_size:
-        with torch.inference_mode():
-            # CRITICAL: Use dedicated stream if provided (parallel mode)
-            if cuda_stream is not None:
-                with torch.cuda.stream(cuda_stream):
+        # CRITICAL FIX: Wrap ALL GPU operations in stream context to prevent race conditions
+        # in parallel mode. Previously only model() was in context, causing artifacts.
+        if cuda_stream is not None:
+            with torch.cuda.stream(cuda_stream):
+                # Transfer to GPU on this stream
+                img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(
+                    dtype=target_dtype, device=DEVICE
+                )
+                with torch.inference_mode():
                     output = model(img_tensor)
-                    # Stream sync happens automatically during .cpu() below
-            else:
-                # Default stream (CPU or non-parallel CUDA)
+                
+                # GPU post-processing (if enabled)
+                from .config import ENABLE_GPU_POST_PROCESSING
+                if ENABLE_GPU_POST_PROCESSING:
+                    output_chw = output.squeeze(0)
+                    output_chw = apply_post_processing_gpu(output_chw, sharpening, contrast, saturation, cuda_stream)
+                    output = output_chw.unsqueeze(0)
+                
+                # Synchronize before CPU transfer
+                cuda_stream.synchronize()
+                output = output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
+        else:
+            # Default stream (CPU or non-parallel CUDA)
+            img_tensor = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(
+                dtype=target_dtype, device=DEVICE
+            )
+            with torch.inference_mode():
                 output = model(img_tensor)
-
-        # PyTorch automatically syncs stream before .cpu() transfer
-        output = output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
+            
+            from .config import ENABLE_GPU_POST_PROCESSING
+            if ENABLE_GPU_POST_PROCESSING and DEVICE == "cuda":
+                output_chw = output.squeeze(0)
+                output_chw = apply_post_processing_gpu(output_chw, sharpening, contrast, saturation, None)
+                output = output_chw.unsqueeze(0)
+            
+            output = output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
 
         # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output
         if not np.isfinite(output).all():
@@ -401,23 +559,23 @@ def _upscale_single_pass(
             x_end = min(x + tile_size, w)
             tile = img_np[y:y_end, x:x_end]
 
-            # Convert tile with same target dtype (already computed above)
-            tile_tensor = torch.from_numpy(tile).permute(2, 0, 1).unsqueeze(0).to(
-                dtype=target_dtype, device=DEVICE
-            )
-
-            with torch.inference_mode():
-                # CRITICAL: Use dedicated stream for this tile
-                if cuda_stream is not None:
-                    with torch.cuda.stream(cuda_stream):
+            # CRITICAL FIX: Wrap ALL tile GPU operations in stream context
+            if cuda_stream is not None:
+                with torch.cuda.stream(cuda_stream):
+                    tile_tensor = torch.from_numpy(tile).permute(2, 0, 1).unsqueeze(0).to(
+                        dtype=target_dtype, device=DEVICE
+                    )
+                    with torch.inference_mode():
                         tile_output = model(tile_tensor)
-                        # Stream sync happens automatically during .cpu() below
-                else:
-                    # Default stream (CPU or non-parallel CUDA)
+                    cuda_stream.synchronize()
+                    tile_output = tile_output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
+            else:
+                tile_tensor = torch.from_numpy(tile).permute(2, 0, 1).unsqueeze(0).to(
+                    dtype=target_dtype, device=DEVICE
+                )
+                with torch.inference_mode():
                     tile_output = model(tile_tensor)
-
-            # PyTorch automatically syncs stream before .cpu() transfer
-            tile_output = tile_output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
+                tile_output = tile_output.squeeze(0).permute(1, 2, 0).float().cpu().numpy()
 
             # CRITICAL: Clean NaN/Inf IMMEDIATELY after model output
             if not np.isfinite(tile_output).all():
@@ -452,6 +610,30 @@ def _upscale_single_pass(
 
     # FINAL clipping: ensure [0,1] range before conversion
     result = np.clip(result, 0.0, 1.0)
+
+    # OPTIMIZATION: Apply GPU post-processing on assembled result (Phase 2.2)
+    from .config import ENABLE_GPU_POST_PROCESSING
+    if ENABLE_GPU_POST_PROCESSING and DEVICE == "cuda" and (sharpening != 0.0 or contrast != 1.0 or saturation != 1.0):
+        # Convert assembled result to GPU tensor
+        result_tensor = torch.from_numpy(result).permute(2, 0, 1).to(dtype=torch.float32, device=DEVICE)
+
+        # Apply post-processing on GPU
+        with torch.inference_mode():
+            if cuda_stream is not None:
+                with torch.cuda.stream(cuda_stream):
+                    result_tensor = apply_post_processing_gpu(result_tensor, sharpening, contrast, saturation, cuda_stream)
+            else:
+                result_tensor = apply_post_processing_gpu(result_tensor, sharpening, contrast, saturation, None)
+
+        # CRITICAL: Synchronize CUDA stream BEFORE .cpu() transfer
+        # Without this, we copy data BEFORE GPU computation finishes → corruption/artifacts
+        if cuda_stream is not None:
+            cuda_stream.synchronize()
+
+        # Transfer back to CPU
+        result = result_tensor.permute(1, 2, 0).float().cpu().numpy()
+        result = np.clip(result, 0.0, 1.0)
+        del result_tensor
 
     # Convert float [0,1] to uint8 [0,255]
     result_uint8 = (result * 255.0).round().astype(np.uint8)
@@ -572,11 +754,10 @@ def upscale_image(
 
     for pass_num in range(num_passes):
         # Convert to RGB if needed
+        # CRITICAL FIX: Use PIL's convert() for proper alpha blending
+        # Direct numpy slicing [:, :, :3] can cause line artifacts
         if current_img.mode != 'RGB':
-            if current_img.mode == 'RGBA':
-                current_img = Image.fromarray(np.array(current_img)[:, :, :3], mode='RGB')
-            else:
-                current_img = current_img.convert('RGB')
+            current_img = current_img.convert('RGB')
 
         # ONE upscaling pass
         current_img = _upscale_single_pass(
@@ -586,13 +767,20 @@ def upscale_image(
             tile_size,
             tile_overlap,
             use_fp16,
-            cuda_stream
+            cuda_stream,
+            sharpening,
+            contrast,
+            saturation
         )
 
     result_img = current_img
 
     # Apply post-processing (ONCE after all passes)
-    result_img = apply_post_processing(result_img, sharpening, contrast, saturation)
+    # OPTIMIZATION: Skip PIL post-processing if GPU version was already applied (Phase 2.2)
+    from .config import ENABLE_GPU_POST_PROCESSING
+    if not (ENABLE_GPU_POST_PROCESSING and DEVICE == "cuda"):
+        # Use CPU PIL post-processing (fallback or when GPU disabled)
+        result_img = apply_post_processing(result_img, sharpening, contrast, saturation)
 
     # Smart resizing based on type
     if scale == 1:

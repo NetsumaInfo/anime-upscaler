@@ -19,7 +19,7 @@ from .state import (
     check_processing_state, update_processing_state,
     frame_pairs, rgba_to_rgb_for_display
 )
-from .gpu import clear_gpu_memory, clear_gpu_memory_async
+from .gpu import clear_gpu_memory, clear_gpu_memory_async, get_model_dtype
 from .file_utils import separate_files_by_type
 from .models import load_model
 from .image_processing import upscale_image, save_image_with_format
@@ -73,8 +73,8 @@ def upscale_image_worker(img_path, model, settings, vram_manager, img_session, o
                 cuda_stream=cuda_stream,  # ✅ PASS STREAM TO INFERENCE
                 **settings['params']
             )
-            # ✅ NO SYNCHRONIZATION HERE - PyTorch auto-syncs during .cpu() inside upscale_image()
-            # Results (PIL images) are ready to use - GPU work completed via automatic sync
+            # ✅ CUDA stream is synchronized inside upscale_image() before .cpu() transfer
+            # Results (PIL images) are ready to use - GPU work completed
 
             # Save output
             img_name = Path(img_path).stem
@@ -125,8 +125,17 @@ def upscale_video_frame_worker(frame_path, model, settings, vram_manager, frame_
         - error_message is None on success
     """
     try:
+        import threading
+        thread_id = threading.current_thread().ident
+        frame_name = Path(frame_path).name if isinstance(frame_path, (str, Path)) else 'unknown'
+
+        t_start = time.time()
+        print(f"[Thread {thread_id:05d}] START {frame_name}")
+
         # Acquire VRAM slot (blocks if all slots busy)
         vram_manager.acquire()
+        t_acquired = time.time()
+        print(f"[Thread {thread_id:05d}] ACQUIRED VRAM after {t_acquired - t_start:.3f}s wait")
 
         # CRITICAL: Create a separate CUDA stream for this worker
         # This allows true parallel GPU execution across workers
@@ -150,8 +159,11 @@ def upscale_video_frame_worker(frame_path, model, settings, vram_manager, frame_
                 cuda_stream=cuda_stream,  # ✅ PASS STREAM TO INFERENCE
                 **settings['params']
             )
-            # ✅ NO SYNCHRONIZATION HERE - PyTorch auto-syncs during .cpu() inside upscale_image()
-            # Results (PIL images) are ready to use - GPU work completed via automatic sync
+            # ✅ CUDA stream is synchronized inside upscale_image() before .cpu() transfer
+            # Results (PIL images) are ready to use - GPU work completed
+
+            t_upscaled = time.time()
+            print(f"[Thread {thread_id:05d}] UPSCALED {frame_name} in {t_upscaled - t_acquired:.3f}s (total {t_upscaled - t_start:.3f}s)")
 
             # Return PIL images WITHOUT saving yet (will be saved in main thread)
             # This allows us to process frames in parallel, then save sequentially
@@ -160,6 +172,8 @@ def upscale_video_frame_worker(frame_path, model, settings, vram_manager, frame_
         finally:
             # Always release VRAM slot
             vram_manager.release()
+            t_released = time.time()
+            print(f"[Thread {thread_id:05d}] RELEASED VRAM for {frame_name} (total {t_released - t_start:.3f}s)")
             # ✅ Remove clear_gpu_memory_async() call from here
             # GPU cleanup happens AFTER all workers complete (batch-level)
 
@@ -182,7 +196,7 @@ def _extract_gradio_value(value, default):
 def process_batch(files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
                  auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames,
                  use_auto_settings, tile_size, tile_overlap, sharpening, contrast, saturation,
-                 video_naming_mode, video_suffix, video_custom_name, enable_parallel=True, vram_manager=None, progress=None):
+                 video_naming_mode, video_suffix, video_custom_name, enable_parallel=True, parallel_workers=2, vram_manager=None, progress=None):
     """Process multiple files with video export support, auto-cleanup, and duplicate frame detection"""
 
     # CRITICAL: Extract values from Gradio components (handles dict vs direct value)
@@ -194,6 +208,16 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     contrast = _extract_gradio_value(contrast, 1.0)
     saturation = _extract_gradio_value(saturation, 1.0)
     video_target_resolution = _extract_gradio_value(video_resolution_dropdown, 0)
+    
+    # CRITICAL: Handle parallel_workers with extra validation
+    # This parameter can sometimes come as a dict from Gradio
+    try:
+        pw_value = _extract_gradio_value(parallel_workers, 2)
+        parallel_workers = int(pw_value) if pw_value is not None else 2
+    except (TypeError, ValueError) as e:
+        print(f"⚠️ Warning: Failed to extract parallel_workers value ({type(parallel_workers)}): {e}")
+        print(f"   Raw value: {parallel_workers}")
+        parallel_workers = 2  # Safe fallback
 
     # Convert precision mode to boolean or None
     if precision_mode == "None":
@@ -226,6 +250,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     # Clear frame pairs at module level
     import app_upscale.state as state_module
     state_module.frame_pairs = []
+
+    # Update VRAMManager with user-configured parallel workers count
+    if vram_manager is not None and enable_parallel:
+        vram_manager.update_max_jobs(parallel_workers)
+        print(f"👷 Parallel workers set to: {parallel_workers}")
 
     if not files:
         return None, None, "", "", {"visible": False}, {"visible": False}, ""
@@ -318,62 +347,170 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
             status_messages.append(f"✅ {completed_count} image(s) completed (parallel mode)")
 
-            # ✅ OPTIONAL: Additional synchronization for safety (belt-and-suspenders)
-            # Note: Not strictly necessary since .cpu() already synced, but adds safety margin
+            # ✅ BATCH-LEVEL CLEANUP: All streams already synchronized inside workers
+            # This is redundant with per-worker sync but ensures all GPU ops complete before cleanup
             if DEVICE == "cuda" and active_streams:
-                print(f"⏳ Final stream synchronization ({len(active_streams)} streams)...")
+                print(f"⏳ Final cleanup ({len(active_streams)} streams)...")
                 for stream in active_streams:
-                    stream.synchronize()
+                    stream.synchronize()  # Redundant but safe
                 print(f"✅ All GPU work verified complete")
                 clear_gpu_memory()  # Now safe to clean up
 
         else:
             # SEQUENTIAL MODE: Process images one at a time (fallback)
-            for idx, img_path in enumerate(images):
-                if check_processing_state("stop"):
-                    break
+            # OPTIMIZATION: Async preloading + async saving (Phase 2.1 + 2.3)
+            from .config import ENABLE_ASYNC_PRELOAD, ENABLE_ASYNC_SAVE
 
-                while check_processing_state("paused"):
-                    time.sleep(0.1)
+            if (ENABLE_ASYNC_PRELOAD or ENABLE_ASYNC_SAVE) and len(images) > 1:
+                # Use async preloading and/or async saving for better pipeline utilization
+                prefetch_pool = None
+                save_pool = None
+                future_images = {}
+                save_futures = []
+
+                if ENABLE_ASYNC_PRELOAD:
+                    prefetch_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ImagePrefetch")
+                    # Preload first image
+                    if len(images) > 0:
+                        future_images[0] = prefetch_pool.submit(Image.open, images[0])
+
+                if ENABLE_ASYNC_SAVE:
+                    save_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ImageSaver")
+
+                try:
+                    for idx, img_path in enumerate(images):
+                        if check_processing_state("stop"):
+                            break
+
+                        while check_processing_state("paused"):
+                            time.sleep(0.1)
+                            if check_processing_state("stop"):
+                                break
+
+                        if progress:
+                            progress((idx + 1) / (len(images) + len(videos)), desc=f"Image {idx+1}/{len(images)}")
+
+                        # Get current image (from prefetch if available)
+                        if ENABLE_ASYNC_PRELOAD and idx in future_images:
+                            img = future_images[idx].result()
+                        else:
+                            img = Image.open(img_path)
+
+                        # Launch prefetch for NEXT image BEFORE upscaling current one
+                        if ENABLE_ASYNC_PRELOAD and idx + 1 < len(images):
+                            future_images[idx+1] = prefetch_pool.submit(Image.open, images[idx+1])
+
+                        # GPU upscales current image WHILE CPU loads next image in background
+                        result, orig = upscale_image(img, model, preserve_alpha,
+                                                    output_format, jpeg_quality, use_fp16,
+                                                    target_scale=image_target_scale,
+                                                    target_resolution=0,
+                                                    is_video_frame=False, **params)
+
+                        img_name = Path(img_path).stem
+                        output_path = img_session / f"{img_name}_upscaled"
+
+                        # PHASE 2.3: Save asynchronously in background (if enabled)
+                        if ENABLE_ASYNC_SAVE:
+                            # Submit save job to background thread
+                            save_future = save_pool.submit(
+                                save_image_with_format,
+                                result.copy(),  # Create copy for async save
+                                output_path,
+                                output_format,
+                                jpeg_quality
+                            )
+                            save_futures.append(save_future)
+                        else:
+                            # Synchronous save (blocks until done)
+                            save_image_with_format(result, output_path, output_format, jpeg_quality)
+
+                        # Add to download files list
+                        ext_map = {"PNG": ".png", "JPEG": ".jpg", "WebP": ".webp"}
+                        final_output_path = output_path.with_suffix(ext_map.get(output_format, ".png"))
+                        download_files.append(str(final_output_path))
+
+                        all_results.append(rgba_to_rgb_for_display(result))
+
+                        # Store for comparison with white background for display
+                        orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
+                        state_module.frame_pairs.append((rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result)))
+
+                        # Free memory from PIL images
+                        # NOTE: img and orig are the same reference, so only close once
+                        orig.close()
+                        result.close()
+                        del img, result, orig, orig_resized
+
+                        # Clear GPU cache every 5 images to prevent memory accumulation
+                        if DEVICE == "cuda" and idx % 5 == 0:
+                            clear_gpu_memory()
+                finally:
+                    # Wait for all async saves to complete
+                    if ENABLE_ASYNC_SAVE and save_pool:
+                        for save_future in save_futures:
+                            save_future.result()
+                        save_pool.shutdown(wait=True)
+
+                    if ENABLE_ASYNC_PRELOAD and prefetch_pool:
+                        prefetch_pool.shutdown(wait=True)
+
+                # Build status message
+                optimizations = []
+                if ENABLE_ASYNC_PRELOAD:
+                    optimizations.append("async preload")
+                if ENABLE_ASYNC_SAVE:
+                    optimizations.append("async save")
+                opt_str = " + ".join(optimizations) if optimizations else "sequential"
+                status_messages.append(f"✅ {len(images)} image(s) completed ({opt_str})")
+
+            else:
+                # Standard sequential mode (no preloading)
+                for idx, img_path in enumerate(images):
                     if check_processing_state("stop"):
                         break
 
-                if progress:
-                    progress((idx + 1) / (len(images) + len(videos)), desc=f"Image {idx+1}/{len(images)}")
+                    while check_processing_state("paused"):
+                        time.sleep(0.1)
+                        if check_processing_state("stop"):
+                            break
 
-                img = Image.open(img_path)
-                result, orig = upscale_image(img, model, preserve_alpha,
-                                            output_format, jpeg_quality, use_fp16,
-                                            target_scale=image_target_scale,
-                                            target_resolution=0,
-                                            is_video_frame=False, **params)
+                    if progress:
+                        progress((idx + 1) / (len(images) + len(videos)), desc=f"Image {idx+1}/{len(images)}")
 
-                img_name = Path(img_path).stem
-                output_path = img_session / f"{img_name}_upscaled"
-                save_image_with_format(result, output_path, output_format, jpeg_quality)
+                    img = Image.open(img_path)
+                    result, orig = upscale_image(img, model, preserve_alpha,
+                                                output_format, jpeg_quality, use_fp16,
+                                                target_scale=image_target_scale,
+                                                target_resolution=0,
+                                                is_video_frame=False, **params)
 
-                # Add to download files list
-                ext_map = {"PNG": ".png", "JPEG": ".jpg", "WebP": ".webp"}
-                final_output_path = output_path.with_suffix(ext_map.get(output_format, ".png"))
-                download_files.append(str(final_output_path))
+                    img_name = Path(img_path).stem
+                    output_path = img_session / f"{img_name}_upscaled"
+                    save_image_with_format(result, output_path, output_format, jpeg_quality)
 
-                all_results.append(rgba_to_rgb_for_display(result))
+                    # Add to download files list
+                    ext_map = {"PNG": ".png", "JPEG": ".jpg", "WebP": ".webp"}
+                    final_output_path = output_path.with_suffix(ext_map.get(output_format, ".png"))
+                    download_files.append(str(final_output_path))
 
-                # Store for comparison with white background for display
-                orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
-                state_module.frame_pairs.append((rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result)))
+                    all_results.append(rgba_to_rgb_for_display(result))
 
-                # Free memory from PIL images
-                # NOTE: img and orig are the same reference, so only close once
-                orig.close()
-                result.close()
-                del img, result, orig, orig_resized
+                    # Store for comparison with white background for display
+                    orig_resized = orig.resize(result.size, Image.Resampling.LANCZOS)
+                    state_module.frame_pairs.append((rgba_to_rgb_for_display(orig_resized), rgba_to_rgb_for_display(result)))
 
-                # Clear GPU cache every 5 images to prevent memory accumulation
-                if DEVICE == "cuda" and idx % 5 == 0:
-                    clear_gpu_memory()
+                    # Free memory from PIL images
+                    # NOTE: img and orig are the same reference, so only close once
+                    orig.close()
+                    result.close()
+                    del img, result, orig, orig_resized
 
-            status_messages.append(f"✅ {len(images)} image(s) completed")
+                    # Clear GPU cache every 5 images to prevent memory accumulation
+                    if DEVICE == "cuda" and idx % 5 == 0:
+                        clear_gpu_memory()
+
+                status_messages.append(f"✅ {len(images)} image(s) completed")
 
     # Process videos with PARALLEL PROCESSING
     if videos:
@@ -424,94 +561,243 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
             start_time = time.time()
 
-            # ============================================================
-            # NEW PARALLEL PROCESSING SYSTEM
-            # ============================================================
-
-            # PHASE 1: Create processing plan (ALWAYS generates JSON mapping)
-            if progress:
-                progress(0.10, desc=f"{vid_name} - Planning parallel processing...")
-
-            processing_plan = plan_parallel_video_processing(
-                str(frames_in),
-                detect_duplicates=skip_duplicate_frames,
-                progress_callback=progress
-            )
-
-            if not processing_plan:
-                status_messages.append(f"❌ {vid_name}: Failed to create processing plan")
-                continue
-
-            stats = processing_plan["stats"]
-            frames_to_process = processing_plan["frames_to_process"]
-            frame_output_mapping = processing_plan["frame_output_mapping"]
-
-            # Report statistics with detailed debugging
-            status_messages.append(f"📊 {vid_name}: Total frames: {stats['total_frames']}")
-            status_messages.append(f"📊 {vid_name}: Unique frames: {stats['unique_frames']}")
-            status_messages.append(f"📊 {vid_name}: Duplicate frames: {stats['duplicates']} ({stats['duplicate_percentage']:.1f}%)")
-            status_messages.append(f"📊 {vid_name}: Parallel jobs planned: {stats['parallel_jobs']}")
-            status_messages.append(f"📊 {vid_name}: frames_to_process length: {len(frames_to_process)}")
-
-            # Debug: Check if parallel is enabled
-            if enable_parallel:
-                if vram_manager:
-                    status_messages.append(f"🔧 {vid_name}: Parallel ENABLED - VRAM manager active ({vram_manager.max_concurrent_jobs} workers)")
-                else:
-                    status_messages.append(f"⚠️ {vid_name}: Parallel ENABLED but VRAM manager is None!")
-            else:
-                status_messages.append(f"⚠️ {vid_name}: Parallel processing is DISABLED")
-
-            # PHASE 2: Upscale ONLY unique frames IN PARALLEL (optimized!)
-            if progress:
-                if skip_duplicate_frames and stats['duplicates'] > 0:
-                    progress(0.15, desc=f"{vid_name} - Upscaling {stats['parallel_jobs']} unique frames (skipping {stats['duplicates']} duplicates)...")
-                else:
-                    progress(0.15, desc=f"{vid_name} - Upscaling {stats['parallel_jobs']} frames in parallel...")
-
-            # Prepare settings for workers
-            video_settings = {
-                'preserve_alpha': preserve_alpha,
-                'use_fp16': use_fp16,
-                'target_resolution': video_target_resolution,
-                'params': params
+            # Initialize stats with default values (will be populated by pipeline or sequential mode)
+            stats = {
+                "total_frames": total_frames,
+                "unique_frames": total_frames,
+                "duplicates": 0,
+                "duplicate_percentage": 0.0
             }
 
-            # Dictionary to store upscaled results: {unique_frame_path: (result_img, orig_img)}
-            upscaled_results = {}
-            frames_completed = 0
+            # ============================================================
+            # CHOOSE PROCESSING MODE: GPU Pipeline vs Sequential
+            # ============================================================
+            from .config import ENABLE_GPU_PIPELINE, PIPELINE_MIN_FRAMES
 
-            # CRITICAL: frames_to_process now contains ONLY unique frames (duplicates excluded)
-            # This is the key optimization: we only upscale what's necessary!
-            unique_frame_count = len(frames_to_process)
+            # Determine if GPU-first pipeline should be used
+            use_gpu_pipeline = (
+                ENABLE_GPU_PIPELINE and
+                total_frames >= PIPELINE_MIN_FRAMES and
+                enable_parallel and
+                vram_manager is not None
+            )
 
-            # Use ThreadPoolExecutor for parallel upscaling
-            status_messages.append(f"🔍 {vid_name}: Checking parallel conditions:")
-            status_messages.append(f"   - enable_parallel={enable_parallel}")
-            status_messages.append(f"   - vram_manager={'OK' if vram_manager else 'None'}")
-            status_messages.append(f"   - unique_frame_count={unique_frame_count} (need >1)")
+            if use_gpu_pipeline:
+                # ============================================================
+                # GPU-FIRST PIPELINE MODE (v2.8 - OPTIMIZED)
+                # ============================================================
+                from .gpu_pipeline import GPUFirstPipeline
+                import torch
 
-            if enable_parallel and vram_manager and unique_frame_count > 1:
-                # PARALLEL MODE - Upscale ONLY unique frames
-                status_messages.append(f"✅ {vid_name}: PARALLEL MODE ACTIVATED - Using {vram_manager.max_concurrent_jobs} workers")
-                with ThreadPoolExecutor(max_workers=vram_manager.max_concurrent_jobs) as executor:
-                    # Submit ONLY unique frames for processing (duplicates skipped!)
-                    future_to_frame = {}
+                # Prepare upscale parameters (matching upscale_image() signature)
+                upscale_params = {
+                    "preserve_alpha": preserve_alpha,
+                    "use_fp16": use_fp16,
+                    "tile_size": params.get("tile_size", 512),
+                    "tile_overlap": params.get("tile_overlap", 32),
+                    "target_scale": 2.0,  # Video always uses 2x
+                    "target_resolution": video_target_resolution,
+                    "sharpening": params.get("sharpening", 0),
+                    "contrast": params.get("contrast", 1.0),
+                    "saturation": params.get("saturation", 1.0),
+                    "is_video_frame": True
+                }
+
+                status_messages.append(f"🚀 {vid_name}: Using GPU-FIRST PIPELINE (extraction + detection + upscale on GPU)")
+
+                # Run GPU-first pipeline
+                pipeline = GPUFirstPipeline(
+                    video_path=video_path,
+                    output_dir=str(frames_out),
+                    model=model,
+                    vram_manager=vram_manager,
+                    upscale_params=upscale_params,
+                    detect_duplicates=skip_duplicate_frames,
+                    frame_format=frame_format,
+                    progress_callback=progress
+                )
+
+                success, result_path, pipeline_stats = pipeline.run()
+
+                if not success:
+                    status_messages.append(f"❌ {vid_name}: Pipeline failed - {result_path}")
+                    continue
+
+                # Report pipeline statistics
+                elapsed = pipeline_stats["total_time"]
+                status_messages.append(f"⏱️ {vid_name}: Pipeline completed in {elapsed:.2f}s ({pipeline_stats['fps']:.2f} fps)")
+                status_messages.append(f"📊 {vid_name}: Total: {pipeline_stats['total_frames']} | Unique: {pipeline_stats['unique_frames']} | Duplicates: {pipeline_stats['duplicate_frames']} ({pipeline_stats['duplicate_percentage']:.1f}%)")
+
+                # Create stats dict compatible with later code (line 990)
+                stats = {
+                    "total_frames": pipeline_stats["total_frames"],
+                    "unique_frames": pipeline_stats["unique_frames"],
+                    "duplicates": pipeline_stats["duplicate_frames"],  # Map key name
+                    "duplicate_percentage": pipeline_stats["duplicate_percentage"]
+                }
+
+                # Frames already saved by pipeline, skip to encoding
+                frames_out_populated = True
+
+            else:
+                # ============================================================
+                # SEQUENTIAL PARALLEL PROCESSING (Original System)
+                # ============================================================
+
+                # Reason for not using pipeline
+                if not ENABLE_GPU_PIPELINE:
+                    status_messages.append(f"ℹ️ {vid_name}: GPU pipeline disabled in config")
+                elif total_frames < PIPELINE_MIN_FRAMES:
+                    status_messages.append(f"ℹ️ {vid_name}: Video too short for GPU pipeline ({total_frames} < {PIPELINE_MIN_FRAMES} frames)")
+                elif not enable_parallel or vram_manager is None:
+                    status_messages.append(f"ℹ️ {vid_name}: Parallel processing not available")
+
+                # PHASE 1: Create processing plan (ALWAYS generates JSON mapping)
+                if progress:
+                    progress(0.10, desc=f"{vid_name} - Planning parallel processing...")
+
+                processing_plan = plan_parallel_video_processing(
+                    str(frames_in),
+                    detect_duplicates=skip_duplicate_frames,
+                    progress_callback=progress
+                )
+
+                if not processing_plan:
+                    status_messages.append(f"❌ {vid_name}: Failed to create processing plan")
+                    continue
+
+                stats = processing_plan["stats"]
+                frames_to_process = processing_plan["frames_to_process"]
+                frame_output_mapping = processing_plan["frame_output_mapping"]
+
+                # Report statistics with detailed debugging
+                status_messages.append(f"📊 {vid_name}: Total frames: {stats['total_frames']}")
+                status_messages.append(f"📊 {vid_name}: Unique frames: {stats['unique_frames']}")
+                status_messages.append(f"📊 {vid_name}: Duplicate frames: {stats['duplicates']} ({stats['duplicate_percentage']:.1f}%)")
+                status_messages.append(f"📊 {vid_name}: Parallel jobs planned: {stats['parallel_jobs']}")
+                status_messages.append(f"📊 {vid_name}: frames_to_process length: {len(frames_to_process)}")
+
+                # ✅ VERIFICATION: Check plan consistency
+                if len(frames_to_process) != stats['unique_frames']:
+                    status_messages.append(f"⚠️ WARNING: frames_to_process ({len(frames_to_process)}) != unique_frames ({stats['unique_frames']}) - Plan may be incorrect!")
+                elif skip_duplicate_frames and stats['duplicates'] > 0:
+                    status_messages.append(f"✅ OPTIMIZATION CONFIRMED: Will upscale ONLY {len(frames_to_process)} unique frames, skip {stats['duplicates']} duplicates")
+
+                # Debug: Check if parallel is enabled
+                if enable_parallel:
+                    if vram_manager:
+                        status_messages.append(f"🔧 {vid_name}: Parallel ENABLED - VRAM manager active ({vram_manager.max_concurrent_jobs} workers)")
+                    else:
+                        status_messages.append(f"⚠️ {vid_name}: Parallel ENABLED but VRAM manager is None!")
+                else:
+                    status_messages.append(f"⚠️ {vid_name}: Parallel processing is DISABLED")
+
+                # PHASE 2: Upscale ONLY unique frames IN PARALLEL (optimized!)
+                if progress:
+                    if skip_duplicate_frames and stats['duplicates'] > 0:
+                        progress(0.15, desc=f"{vid_name} - Upscaling {stats['parallel_jobs']} unique frames (skipping {stats['duplicates']} duplicates)...")
+                    else:
+                        progress(0.15, desc=f"{vid_name} - Upscaling {stats['parallel_jobs']} frames in parallel...")
+
+                # Prepare settings for workers
+                video_settings = {
+                    'preserve_alpha': preserve_alpha,
+                    'use_fp16': use_fp16,
+                    'target_resolution': video_target_resolution,
+                    'params': params
+                }
+
+                # Dictionary to store upscaled results: {unique_frame_path: (result_img, orig_img)}
+                upscaled_results = {}
+                frames_completed = 0
+
+                # CRITICAL: frames_to_process now contains ONLY unique frames (duplicates excluded)
+                # This is the key optimization: we only upscale what's necessary!
+                unique_frame_count = len(frames_to_process)
+
+                # Use ThreadPoolExecutor for parallel upscaling
+                status_messages.append(f"🔍 {vid_name}: Checking parallel conditions:")
+                status_messages.append(f"   - enable_parallel={enable_parallel}")
+                status_messages.append(f"   - vram_manager={'OK' if vram_manager else 'None'}")
+                status_messages.append(f"   - unique_frame_count={unique_frame_count} (need >1)")
+
+                if enable_parallel and vram_manager and unique_frame_count > 1:
+                    # PARALLEL MODE - Upscale ONLY unique frames
+                    status_messages.append(f"✅ {vid_name}: PARALLEL MODE ACTIVATED - Using {vram_manager.max_concurrent_jobs} workers")
+                    with ThreadPoolExecutor(max_workers=vram_manager.max_concurrent_jobs) as executor:
+                        # Submit ONLY unique frames for processing (duplicates skipped!)
+                        future_to_frame = {}
+                        for frame_path in frames_to_process:
+                            if check_processing_state("stop"):
+                                break
+
+                            future = executor.submit(
+                                upscale_video_frame_worker,
+                                frame_path, model, video_settings, vram_manager, frame_format
+                            )
+                            future_to_frame[future] = frame_path
+
+                        # Track all active CUDA streams for batch-level sync
+                        active_streams = []
+
+                        # Collect results as they complete
+                        for future in as_completed(future_to_frame):
+                            if check_processing_state("stop"):
+                                break
+
+                            while check_processing_state("paused"):
+                                time.sleep(0.1)
+                                if check_processing_state("stop"):
+                                    break
+
+                            frame_path_str, result_img, orig_img, stream, error = future.result()
+
+                            if error:
+                                status_messages.append(f"❌ Error upscaling frame {Path(frame_path_str).name}: {error}")
+                                continue
+
+                            # Store result (PIL images already have synced data via .cpu())
+                            # CRITICAL: Normalize path to match keys in frame_output_mapping
+                            normalized_path = os.path.normpath(os.path.abspath(frame_path_str))
+                            upscaled_results[normalized_path] = (result_img, orig_img)
+
+                            # Track active stream for optional additional sync
+                            if stream is not None:
+                                active_streams.append(stream)
+
+                            frames_completed += 1
+
+                            # Update progress
+                            if progress:
+                                progress(0.15 + (frames_completed / unique_frame_count) * 0.7,
+                                        desc=f"{vid_name} - Upscaled {frames_completed}/{unique_frame_count} unique frames")
+
+                    if skip_duplicate_frames and stats['duplicates'] > 0:
+                        status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
+                    else:
+                        status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled in parallel")
+
+                    # ✅ BATCH-LEVEL CLEANUP: All streams already synchronized inside workers
+                    # This is redundant with per-worker sync but ensures all GPU ops complete before cleanup
+                    if DEVICE == "cuda" and active_streams:
+                        print(f"⏳ {vid_name}: Final cleanup ({len(active_streams)} streams)...")
+                        for stream in active_streams:
+                            stream.synchronize()  # Redundant but safe
+                        print(f"✅ {vid_name}: All GPU work verified complete")
+                        clear_gpu_memory()  # Now safe to clean up
+
+                else:
+                    # SEQUENTIAL FALLBACK (if parallel disabled or single unique frame)
+                    if not enable_parallel:
+                        status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Parallel processing is DISABLED in settings")
+                    elif not vram_manager:
+                        status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - VRAM manager is None")
+                    elif unique_frame_count <= 1:
+                        status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Only {unique_frame_count} unique frame (need >1 for parallel)")
+                    else:
+                        status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Unknown reason")
+
                     for frame_path in frames_to_process:
-                        if check_processing_state("stop"):
-                            break
-
-                        future = executor.submit(
-                            upscale_video_frame_worker,
-                            frame_path, model, video_settings, vram_manager, frame_format
-                        )
-                        future_to_frame[future] = frame_path
-
-                    # Track all active CUDA streams for batch-level sync
-                    active_streams = []
-
-                    # Collect results as they complete
-                    for future in as_completed(future_to_frame):
                         if check_processing_state("stop"):
                             break
 
@@ -520,295 +806,274 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                             if check_processing_state("stop"):
                                 break
 
-                        frame_path_str, result_img, orig_img, stream, error = future.result()
+                        frame_path_str, result_img, orig_img, stream, error = upscale_video_frame_worker(
+                            frame_path, model, video_settings, vram_manager, frame_format
+                        )
 
                         if error:
                             status_messages.append(f"❌ Error upscaling frame {Path(frame_path_str).name}: {error}")
                             continue
 
-                        # Store result (PIL images already have synced data via .cpu())
                         # CRITICAL: Normalize path to match keys in frame_output_mapping
                         normalized_path = os.path.normpath(os.path.abspath(frame_path_str))
                         upscaled_results[normalized_path] = (result_img, orig_img)
-
-                        # Track active stream for optional additional sync
-                        if stream is not None:
-                            active_streams.append(stream)
-
                         frames_completed += 1
 
-                        # Update progress
                         if progress:
                             progress(0.15 + (frames_completed / unique_frame_count) * 0.7,
-                                    desc=f"{vid_name} - Upscaled {frames_completed}/{unique_frame_count} unique frames")
+                                    desc=f"{vid_name} - Frame {frames_completed}/{unique_frame_count}")
 
-                if skip_duplicate_frames and stats['duplicates'] > 0:
-                    status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
-                else:
-                    status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled in parallel")
+                    if skip_duplicate_frames and stats['duplicates'] > 0:
+                        status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
+                    else:
+                        status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled (sequential)")
 
-                # ✅ OPTIONAL: Additional synchronization for safety (belt-and-suspenders)
-                # Note: Not strictly necessary since .cpu() already synced, but adds safety margin
-                if DEVICE == "cuda" and active_streams:
-                    print(f"⏳ {vid_name}: Final stream synchronization ({len(active_streams)} streams)...")
-                    for stream in active_streams:
-                        stream.synchronize()
-                    print(f"✅ {vid_name}: All GPU work verified complete")
-                    clear_gpu_memory()  # Now safe to clean up
+                    # CRITICAL: Synchronize GPU ONLY AFTER all workers finished
+                    if DEVICE == "cuda":
+                        clear_gpu_memory()
 
-            else:
-                # SEQUENTIAL FALLBACK (if parallel disabled or single unique frame)
-                if not enable_parallel:
-                    status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Parallel processing is DISABLED in settings")
-                elif not vram_manager:
-                    status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - VRAM manager is None")
-                elif unique_frame_count <= 1:
-                    status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Only {unique_frame_count} unique frame (need >1 for parallel)")
-                else:
-                    status_messages.append(f"⚠️ {vid_name}: SEQUENTIAL MODE - Unknown reason")
+                # PHASE 3: Save frames in correct order (reconstruct full sequence)
+                # ✅ CRITICAL FIX: Use 2-pass approach to avoid order dependency
+                # PASS 1: Save ALL unique frames first
+                # PASS 2: Copy files for all duplicates
 
-                for frame_path in frames_to_process:
+                if progress:
+                    progress(0.85, desc=f"{vid_name} - Saving unique frames...")
+
+                saved_unique_frames = {}  # Track saved unique frames: {unique_frame_path: saved_output_path}
+
+                # ============================================================
+                # PASS 1: Save ALL unique frames from upscaled_results
+                # ============================================================
+                for frame_idx in range(total_frames):
                     if check_processing_state("stop"):
                         break
 
-                    while check_processing_state("paused"):
-                        time.sleep(0.1)
-                        if check_processing_state("stop"):
-                            break
+                    frame_info = frame_output_mapping[frame_idx]
+                    is_duplicate = frame_info["is_duplicate"]
 
-                    frame_path_str, result_img, orig_img, stream, error = upscale_video_frame_worker(
-                        frame_path, model, video_settings, vram_manager, frame_format
-                    )
+                    if not is_duplicate:
+                        # This is a unique frame - save it now
+                        unique_frame_raw = frame_info["unique_frame"]
+                        unique_frame = os.path.normpath(os.path.abspath(unique_frame_raw))
+                        output_path = Path(frame_info["output_path"])
 
-                    if error:
-                        status_messages.append(f"❌ Error upscaling frame {Path(frame_path_str).name}: {error}")
-                        continue
+                        if unique_frame not in upscaled_results:
+                            print(f"DEBUG: Looking for normalized path '{unique_frame}'")
+                            print(f"DEBUG: Available keys sample: {list(upscaled_results.keys())[:3]}...")
+                            status_messages.append(f"⚠️ {vid_name}: Unique frame {frame_idx} missing from upscaled results")
+                            continue
 
-                    # CRITICAL: Normalize path to match keys in frame_output_mapping
-                    normalized_path = os.path.normpath(os.path.abspath(frame_path_str))
-                    upscaled_results[normalized_path] = (result_img, orig_img)
-                    frames_completed += 1
+                        result_img, orig_img = upscaled_results[unique_frame]
 
-                    if progress:
-                        progress(0.15 + (frames_completed / unique_frame_count) * 0.7,
-                                desc=f"{vid_name} - Frame {frames_completed}/{unique_frame_count}")
+                        # Save with format (PNG compression + I/O)
+                        save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
 
-                if skip_duplicate_frames and stats['duplicates'] > 0:
-                    status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
+                        # Track saved file for duplicate copying (PASS 2)
+                        saved_unique_frames[unique_frame] = output_path
+
+                        # Update UI with frame pair (only for first 100 unique frames)
+                        if frame_idx < 100:
+                            all_results.append(rgba_to_rgb_for_display(result_img))
+                            orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
+                            state_module.frame_pairs.append((
+                                rgba_to_rgb_for_display(orig_resized),
+                                rgba_to_rgb_for_display(result_img)
+                            ))
+                            orig_resized.close()
+                            del orig_resized
+
+                unique_saved = len(saved_unique_frames)
+
+                # ============================================================
+                # PASS 2: Copy files for ALL duplicates (now all sources exist!)
+                # ============================================================
+                if progress:
+                    progress(0.90, desc=f"{vid_name} - Copying duplicate frames...")
+
+                duplicates_copied = 0
+                for frame_idx in range(total_frames):
+                    if check_processing_state("stop"):
+                        break
+
+                    frame_info = frame_output_mapping[frame_idx]
+                    is_duplicate = frame_info["is_duplicate"]
+
+                    if is_duplicate:
+                        # This is a duplicate - copy from saved unique frame
+                        unique_frame_raw = frame_info["unique_frame"]
+                        unique_frame = os.path.normpath(os.path.abspath(unique_frame_raw))
+                        output_path = Path(frame_info["output_path"])
+
+                        if unique_frame in saved_unique_frames:
+                            source_path = saved_unique_frames[unique_frame]
+                            try:
+                                shutil.copy2(source_path, output_path)
+                                duplicates_copied += 1
+                            except Exception as e:
+                                status_messages.append(f"⚠️ {vid_name}: Failed to copy duplicate frame {frame_idx}: {e}")
+                        else:
+                            status_messages.append(f"⚠️ {vid_name}: Unique frame not found for duplicate {frame_idx}")
+
+                saved_frames_count = unique_saved + duplicates_copied
+
+                # Confirm all frames saved
+                if saved_frames_count < total_frames:
+                    status_messages.append(f"⚠️ {vid_name}: Only saved {saved_frames_count}/{total_frames} frames (some missing)")
                 else:
-                    status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled (sequential)")
+                    if skip_duplicate_frames and duplicates_copied > 0:
+                        status_messages.append(f"💾 {vid_name}: Saved {total_frames} frames ({frames_completed} upscaled + {duplicates_copied} copied from duplicates)")
+                        time_saved_pct = (duplicates_copied / total_frames * 100)
+                        status_messages.append(f"⚡ {vid_name}: OPTIMIZATION SUCCESS - Skipped {duplicates_copied} upscales ({time_saved_pct:.1f}% time saved)")
+                    else:
+                        status_messages.append(f"💾 {vid_name}: Successfully saved all {total_frames} frames")
 
-                # CRITICAL: Synchronize GPU ONLY AFTER all workers finished
+                # Cleanup upscaled results from memory
+                for result_img, orig_img in upscaled_results.values():
+                    result_img.close()
+                    orig_img.close()
+                upscaled_results.clear()
+                del upscaled_results
+
+                # Clear GPU memory after processing all frames
                 if DEVICE == "cuda":
                     clear_gpu_memory()
 
-            # PHASE 3: Save frames in correct order (reconstruct full sequence)
+                # Auto-delete input frames if enabled
+                if auto_delete_input_frames:
+                    try:
+                        shutil.rmtree(frames_in)
+                        status_messages.append(f"🗑️ {vid_name}: Cleaned up input frames")
+                    except Exception as e:
+                        print(f"⚠️ Failed to delete input frames: {e}")
+
+        # Export video if requested
+        if export_video and not check_processing_state("stop"):
+            # Show encoding details
+            encoding_start_time = time.time()
             if progress:
-                progress(0.85, desc=f"{vid_name} - Reconstructing sequence (saving {total_frames} frames)...")
+                progress(0.95, desc=f"🎬 Encoding {vid_name} with {codec_name} ({profile_name})...")
 
-            saved_frames_count = 0
-            duplicates_copied = 0
-            for frame_idx in range(total_frames):
-                if check_processing_state("stop"):
-                    break
+            status_messages.append(f"🎬 {vid_name}: Starting video encoding with {codec_name} ({profile_name})...")
 
-                frame_info = frame_output_mapping[frame_idx]
-                unique_frame = frame_info["unique_frame"]
-                output_path = Path(frame_info["output_path"])
-                is_duplicate = frame_info["is_duplicate"]
+            # Determine extension based on codec
+            ext_map = {
+                "H.264 (AVC)": ".mp4",
+                "H.265 (HEVC)": ".mp4",
+                "ProRes": ".mov",
+                "DNxHD/DNxHR": ".mov"
+            }
+            ext = ext_map.get(codec_name, ".mp4")
 
-                # Get upscaled result for this unique frame
-                if unique_frame not in upscaled_results:
-                    # Debug: Show available keys to help diagnose path normalization issues
-                    print(f"DEBUG: Looking for '{unique_frame}'")
-                    print(f"DEBUG: Available keys: {list(upscaled_results.keys())[:3]}...")  # Show first 3
-                    status_messages.append(f"⚠️ {vid_name}: Frame {frame_idx} missing from results")
-                    continue
+            # Determine output video name based on naming mode
+            # Handle both English and French naming modes
+            t_fr = TRANSLATIONS["fr"]
+            t_en = TRANSLATIONS["en"]
+            if video_naming_mode in ["Same as input", t_en.get("naming_same"), t_fr.get("naming_same"), "Même nom que l'original"]:
+                output_video_name = vid_name
+            elif video_naming_mode in ["Add suffix", t_en.get("naming_suffix"), t_fr.get("naming_suffix"), "Ajouter un suffixe"]:
+                output_video_name = f"{vid_name}{video_suffix}"
+            else:  # Custom name
+                # Use custom name if provided, otherwise fallback to original name
+                output_video_name = video_custom_name.strip() if video_custom_name.strip() else vid_name
 
-                result_img, orig_img = upscaled_results[unique_frame]
-
-                # Save frame with chosen format
-                # CRITICAL: For duplicates, we're reusing the same upscaled image (no re-upscaling!)
-                save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
-                saved_frames_count += 1
-
-                # Track duplicates copied
-                if is_duplicate:
-                    duplicates_copied += 1
-
-                # Progress update - show more frequently when duplicates are involved
-                if progress:
-                    if skip_duplicate_frames and stats['duplicates'] > 0:
-                        # Show progress every frame to visualize duplicate copying
-                        if is_duplicate:
-                            progress(0.85 + (saved_frames_count / total_frames) * 0.10,
-                                    desc=f"{vid_name} - Frame {saved_frames_count}/{total_frames} (copied duplicate)")
-                        else:
-                            progress(0.85 + (saved_frames_count / total_frames) * 0.10,
-                                    desc=f"{vid_name} - Frame {saved_frames_count}/{total_frames} (saved unique)")
-                    elif saved_frames_count % 10 == 0:
-                        # Standard progress (every 10 frames)
-                        progress(0.85 + (saved_frames_count / total_frames) * 0.10,
-                                desc=f"{vid_name} - Saved {saved_frames_count}/{total_frames} frames")
-
-                # Update UI with frame pair (only for first 100 frames to avoid memory issues)
-                if frame_idx < 100:
-                    all_results.append(rgba_to_rgb_for_display(result_img))
-                    orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
-                    state_module.frame_pairs.append((
-                        rgba_to_rgb_for_display(orig_resized),
-                        rgba_to_rgb_for_display(result_img)
-                    ))
-                    orig_resized.close()
-                    del orig_resized
-
-            # Confirm all frames saved
-            if saved_frames_count < total_frames:
-                status_messages.append(f"⚠️ {vid_name}: Only saved {saved_frames_count}/{total_frames} frames (some missing)")
+            # Determine final output path
+            if organize_videos_folder:
+                # Export directly to output/videos/
+                video_output = videos_output_dir / f"{output_video_name}{ext}"
             else:
-                if skip_duplicate_frames and duplicates_copied > 0:
-                    status_messages.append(f"💾 {vid_name}: Saved {total_frames} frames ({frames_completed} upscaled + {duplicates_copied} copied from duplicates)")
-                else:
-                    status_messages.append(f"💾 {vid_name}: Successfully saved all {total_frames} frames")
+                # Export to session folder
+                video_output = vid_session / f"{output_video_name}{ext}"
 
-            # Cleanup upscaled results from memory
-            for result_img, orig_img in upscaled_results.values():
-                result_img.close()
-                orig_img.close()
-            upscaled_results.clear()
-            del upscaled_results
+            success, result_msg = encode_video(
+                str(frames_out),
+                str(video_output),
+                codec_name,
+                profile_name,
+                original_fps,
+                preserve_alpha,
+                video_path,
+                keep_audio,
+                frame_format  # ✅ CRITICAL FIX: Pass frame_format to use correct file extension
+            )
 
-            # Clear GPU memory after processing all frames
-            if DEVICE == "cuda":
-                clear_gpu_memory()
+            encoding_time = time.time() - encoding_start_time
 
-            # Auto-delete input frames if enabled
-            if auto_delete_input_frames:
+            if success:
+                status_messages.append(f"✅ {vid_name}: Video exported to {video_output.parent.name}/{video_output.name} ({codec_name} - {profile_name})")
+                status_messages.append(f"⏱️ {vid_name}: Encoding time: {encoding_time:.1f}s ({total_frames / encoding_time:.2f} fps)")
+                download_files.append(str(video_output))
+
+                # Auto-delete upscaled frames after successful encoding (if enabled)
+                if auto_delete_output_frames:
+                    try:
+                        shutil.rmtree(frames_out)
+                        status_messages.append(f"🗑️ {vid_name}: Cleaned up upscaled frames")
+                    except Exception as e:
+                        status_messages.append(f"⚠️ {vid_name}: Failed to delete upscaled frames: {e}")
+            else:
+                status_messages.append(f"⚠️ {vid_name}: {result_msg}")
+
+        # Auto-delete parallel_processing_plan.json if enabled
+        if auto_delete_frame_mapping:
+            plan_file = vid_session / "parallel_processing_plan.json"
+            if plan_file.exists():
                 try:
-                    shutil.rmtree(frames_in)
-                    status_messages.append(f"🗑️ {vid_name}: Cleaned up input frames")
+                    os.remove(plan_file)
+                    status_messages.append(f"🗑️ {vid_name}: Deleted parallel_processing_plan.json")
                 except Exception as e:
-                    print(f"⚠️ Failed to delete input frames: {e}")
+                    print(f"⚠️ Failed to delete parallel_processing_plan.json: {e}")
 
-            # Export video if requested
-            if export_video and not check_processing_state("stop"):
-                if progress:
-                    progress(0.95, desc=f"Encoding {vid_name}...")
+        # Clean up empty video session folder if all contents were deleted
+        if auto_delete_input_frames and auto_delete_output_frames and auto_delete_frame_mapping:
+            try:
+                # Check if vid_session is empty or only contains the video file
+                remaining_items = list(vid_session.iterdir())
+                # Filter out the video file itself
+                remaining_items = [item for item in remaining_items if not item.is_file() or not str(item).endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm'))]
 
-                # Determine extension based on codec
-                ext_map = {
-                    "H.264 (AVC)": ".mp4",
-                    "H.265 (HEVC)": ".mp4",
-                    "ProRes": ".mov",
-                    "DNxHD/DNxHR": ".mov"
-                }
-                ext = ext_map.get(codec_name, ".mp4")
+                if len(remaining_items) == 0 or (len(remaining_items) == 0 and export_video):
+                    # Folder is empty (except possibly the video), we can delete it
+                    # But only if video was exported to videos/ folder (organize_videos_folder=True)
+                    if organize_videos_folder and export_video:
+                        # Video is in output/videos/, so we can safely delete vid_session
+                        shutil.rmtree(vid_session)
+                        status_messages.append(f"🗑️ {vid_name}: Cleaned up empty video processing folder")
+            except Exception as e:
+                print(f"⚠️ Failed to clean up video session folder: {e}")
 
-                # Determine output video name based on naming mode
-                # Handle both English and French naming modes
-                t_fr = TRANSLATIONS["fr"]
-                t_en = TRANSLATIONS["en"]
-                if video_naming_mode in ["Same as input", t_en.get("naming_same"), t_fr.get("naming_same"), "Même nom que l'original"]:
-                    output_video_name = vid_name
-                elif video_naming_mode in ["Add suffix", t_en.get("naming_suffix"), t_fr.get("naming_suffix"), "Ajouter un suffixe"]:
-                    output_video_name = f"{vid_name}{video_suffix}"
-                else:  # Custom name
-                    # Use custom name if provided, otherwise fallback to original name
-                    output_video_name = video_custom_name.strip() if video_custom_name.strip() else vid_name
+        # Add performance statistics with optimization details
+        processing_time = time.time() - start_time
+        if skip_duplicate_frames and stats["duplicates"] > 0:
+            duplicates = stats["duplicates"]
+            unique = stats["unique_frames"]
+            percentage = stats["duplicate_percentage"]
 
-                # Determine final output path
-                if organize_videos_folder:
-                    # Export directly to output/videos/
-                    video_output = videos_output_dir / f"{output_video_name}{ext}"
-                else:
-                    # Export to session folder
-                    video_output = vid_session / f"{output_video_name}{ext}"
-
-                success, result_msg = encode_video(
-                    str(frames_out),
-                    str(video_output),
-                    codec_name,
-                    profile_name,
-                    original_fps,
-                    preserve_alpha,
-                    video_path,
-                    keep_audio
+            # Calculate theoretical speedup
+            # Base: If we upscaled all frames sequentially
+            # Optimized: Upscale only unique frames in parallel + copy duplicates
+            if enable_parallel and vram_manager:
+                workers = vram_manager.max_concurrent_jobs
+                theoretical_speedup = (total_frames / unique) * workers
+                status_messages.append(
+                    f"⚡ {vid_name}: OPTIMIZED - {duplicates} duplicates skipped ({percentage:.1f}%), "
+                    f"{unique} unique frames upscaled with {workers} workers"
+                )
+            else:
+                status_messages.append(
+                    f"⚡ {vid_name}: {duplicates} duplicates skipped ({percentage:.1f}%), "
+                    f"{unique} unique frames upscaled (sequential)"
                 )
 
-                if success:
-                    status_messages.append(f"✅ {vid_name}: Video exported to {video_output.parent.name}/{video_output.name} ({codec_name} - {profile_name})")
-                    download_files.append(str(video_output))
-
-                    # Auto-delete upscaled frames after successful encoding (if enabled)
-                    if auto_delete_output_frames:
-                        try:
-                            shutil.rmtree(frames_out)
-                            status_messages.append(f"🗑️ {vid_name}: Cleaned up upscaled frames")
-                        except Exception as e:
-                            status_messages.append(f"⚠️ {vid_name}: Failed to delete upscaled frames: {e}")
-                else:
-                    status_messages.append(f"⚠️ {vid_name}: {result_msg}")
-
-            # Auto-delete parallel_processing_plan.json if enabled
-            if auto_delete_frame_mapping:
-                plan_file = vid_session / "parallel_processing_plan.json"
-                if plan_file.exists():
-                    try:
-                        os.remove(plan_file)
-                        status_messages.append(f"🗑️ {vid_name}: Deleted parallel_processing_plan.json")
-                    except Exception as e:
-                        print(f"⚠️ Failed to delete parallel_processing_plan.json: {e}")
-
-            # Clean up empty video session folder if all contents were deleted
-            if auto_delete_input_frames and auto_delete_output_frames and auto_delete_frame_mapping:
-                try:
-                    # Check if vid_session is empty or only contains the video file
-                    remaining_items = list(vid_session.iterdir())
-                    # Filter out the video file itself
-                    remaining_items = [item for item in remaining_items if not item.is_file() or not str(item).endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm'))]
-
-                    if len(remaining_items) == 0 or (len(remaining_items) == 0 and export_video):
-                        # Folder is empty (except possibly the video), we can delete it
-                        # But only if video was exported to videos/ folder (organize_videos_folder=True)
-                        if organize_videos_folder and export_video:
-                            # Video is in output/videos/, so we can safely delete vid_session
-                            shutil.rmtree(vid_session)
-                            status_messages.append(f"🗑️ {vid_name}: Cleaned up empty video processing folder")
-                except Exception as e:
-                    print(f"⚠️ Failed to clean up video session folder: {e}")
-
-            # Add performance statistics with optimization details
-            processing_time = time.time() - start_time
-            if skip_duplicate_frames and stats["duplicates"] > 0:
-                duplicates = stats["duplicates"]
-                unique = stats["unique_frames"]
-                percentage = stats["duplicate_percentage"]
-
-                # Calculate theoretical speedup
-                # Base: If we upscaled all frames sequentially
-                # Optimized: Upscale only unique frames in parallel + copy duplicates
-                if enable_parallel and vram_manager:
-                    workers = vram_manager.max_concurrent_jobs
-                    theoretical_speedup = (total_frames / unique) * workers
-                    status_messages.append(
-                        f"⚡ {vid_name}: OPTIMIZED - {duplicates} duplicates skipped ({percentage:.1f}%), "
-                        f"{unique} unique frames upscaled with {workers} workers"
-                    )
-                else:
-                    status_messages.append(
-                        f"⚡ {vid_name}: {duplicates} duplicates skipped ({percentage:.1f}%), "
-                        f"{unique} unique frames upscaled (sequential)"
-                    )
-
-                status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s")
+            status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s")
+        else:
+            if enable_parallel and vram_manager:
+                workers = vram_manager.max_concurrent_jobs
+                status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s ({total_frames} frames, {workers} parallel workers)")
             else:
-                if enable_parallel and vram_manager:
-                    workers = vram_manager.max_concurrent_jobs
-                    status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s ({total_frames} frames, {workers} parallel workers)")
-                else:
-                    status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s ({total_frames} frames, sequential)")
+                status_messages.append(f"⏱️ {vid_name}: Processing time: {processing_time:.1f}s ({total_frames} frames, sequential)")
 
-            status_messages.append(f"✅ {vid_name}: {total_frames} frames processed")
+        status_messages.append(f"✅ {vid_name}: {total_frames} frames processed")
 
     update_processing_state("running", False)
     if progress:
@@ -866,4 +1131,4 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     }
 
     return (first_pair, all_results, final_status, str(session),
-            frame_updates, frame_label_update, download_text)
+        frame_updates, frame_label_update, download_text)

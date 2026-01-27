@@ -55,6 +55,10 @@ models/*.safetensors
 *.tmp
 *.cache
 .gradio/
+nul
+
+# Test files
+test_*.py
 
 # OS
 Thumbs.db

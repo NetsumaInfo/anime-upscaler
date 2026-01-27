@@ -35,18 +35,73 @@ MODELS_DIR.mkdir(exist_ok=True)
 # ============================================================================
 import multiprocessing
 
-# Parallel hash computation for duplicate frame detection
+# ============================================================================
+# Phase 1: Parallel Hash Computation for Duplicate Frame Detection
+# ============================================================================
 ENABLE_PARALLEL_HASH_DETECTION = True  # Set to False to use sequential (fallback)
 HASH_WORKERS = min(multiprocessing.cpu_count(), 8)  # Max 8 workers for hash computation
+# Expected gain: 5-7x faster duplicate detection (75s → 10-15s for 1000 frames)
 
-# Async image pre-loading (Phase 2.1 - to be implemented)
-ENABLE_ASYNC_PRELOAD = False  # Will be enabled after Phase 2.1 implementation
+# Default number of parallel workers for GPU upscaling (user-configurable in UI)
+DEFAULT_PARALLEL_WORKERS = 2  # Safe default, user can increase based on VRAM
 
-# Async image saving (Phase 2.3 - to be implemented)
-ENABLE_ASYNC_SAVE = False  # Will be enabled after Phase 2.3 implementation
+# ============================================================================
+# Phase 2: CPU+GPU Hybrid Optimizations
+# ============================================================================
 
-# GPU post-processing (Phase 2.2 - to be implemented)
-ENABLE_GPU_POST_PROCESSING = False  # Will be enabled after Phase 2.2 implementation
+# Phase 2.1: Async Image Pre-loading (Sequential Mode)
+ENABLE_ASYNC_PRELOAD = False  # DISABLED - Testing to isolate corruption issue
+# Load image N+1 while GPU upscales image N
+# Expected gain: 5-10% faster sequential processing (eliminates I/O wait)
+
+# Phase 2.2: GPU Post-Processing (Sharpening/Contrast/Saturation on GPU)
+ENABLE_GPU_POST_PROCESSING = False  # TEMPORARILY DISABLED - Debugging visual artifacts
+# Use PyTorch instead of PIL for post-processing
+# Expected gain: 10-15% faster (post-processing on GPU instead of CPU)
+# NOTE: Only applies when post-processing parameters are non-default
+
+# Phase 2.3: Async Image Saving (Sequential Mode)
+ENABLE_ASYNC_SAVE = False  # DISABLED - Causes memory corruption (PIL copy() issue)
+# Save image N while GPU upscales image N+1
+# Expected gain: 5-10% faster sequential processing (eliminates I/O wait)
+
+# ============================================================================
+# Combined Expected Performance (Phase 1 + Phase 2)
+# ============================================================================
+# Sequential images: 20-35% faster (Phase 2 optimizations)
+# Parallel images: 10-15% faster (Phase 2.2 GPU post-processing only)
+# Video duplicate detection: 5-7x faster (Phase 1)
+# Overall video processing: 35-50% faster (Phase 1 + Phase 2 combined)
+
+# ============================================================================
+# Phase 3: GPU-First Optimized Pipeline (REPLACES v2.7 Concurrent Pipeline)
+# ============================================================================
+
+# Enable GPU-first pipeline for video processing (IMPROVED v2.8)
+ENABLE_GPU_PIPELINE = False  # Set to False to use sequential v2.6.2 processing
+# Minimum frames required to use pipeline (overhead not worth it for short videos)
+PIPELINE_MIN_FRAMES = 20  # Lowered from 50 (GPU pipeline activates for videos ≥20 frames)
+
+# GPU Pipeline Features:
+# - FFmpeg CUDA/NVDEC extraction (3-5x faster than CPU)
+# - GPU perceptual hashing with PyTorch tensors (instant detection)
+# - Intelligent pre-loading (load N+1 while upscaling N)
+# - Minimal CPU usage (only I/O and duplicate copying)
+# - CUDA streams for true parallel GPU utilization
+
+# Expected Performance Gains (v2.8 GPU Pipeline):
+# - Extraction: 3-5x faster (GPU decode vs CPU)
+# - Detection: 10-20x faster (GPU tensors vs CPU hashing)
+# - Upscaling: Same as v2.6.2 (CUDA streams, parallel workers)
+# - Pre-loading: Eliminates frame load bottleneck (zero idle time)
+#
+# Total Expected Speedup:
+#   Without duplicates: 2-3x faster than v2.6.2 (GPU extraction + pre-load)
+#   With duplicates (40%): 6-12x faster (GPU everything + skip duplicates)
+#   Best case (70% duplicates): 15-25x faster
+#
+# Fallback: If GPU extraction unavailable, automatically uses CPU extraction
+#   (still faster than v2.7 due to pre-loading and simpler architecture)
 
 # ============================================================================
 # Multilingual Translations (FR/EN)
@@ -135,7 +190,9 @@ TRANSLATIONS = {
         "output_folder": "📂 Dossier de Sortie",
         "info_help_title": "ℹ️ Info & Aide",
         "enable_parallel": "⚡ Activer le traitement parallèle des images",
-        "enable_parallel_info": "Traiter plusieurs images simultanément (détection VRAM automatique)"
+        "enable_parallel_info": "Traiter plusieurs images simultanément (détection VRAM automatique)",
+        "parallel_workers": "👷 Nombre de workers parallèles",
+        "parallel_workers_info": "Plus de workers = plus rapide, mais utilise plus de VRAM. 2 par défaut."
     },
     "en": {
         "title": "🎨 Anime Upscaler - Batch & Video Export",
@@ -220,7 +277,9 @@ TRANSLATIONS = {
         "output_folder": "📂 Output Folder",
         "info_help_title": "ℹ️ Info & Help",
         "enable_parallel": "⚡ Enable parallel image processing",
-        "enable_parallel_info": "Process multiple images simultaneously (automatic VRAM detection)"
+        "enable_parallel_info": "Process multiple images simultaneously (automatic VRAM detection)",
+        "parallel_workers": "👷 Number of parallel workers",
+        "parallel_workers_info": "More workers = faster, but uses more VRAM. Default is 2."
     }
 }
 

@@ -193,7 +193,14 @@ def create_app(vram_manager=None, vram_info_text=""):
     """
     import app_upscale.state as state_module
 
-    with gr.Blocks(title="Anime Upscaler - Batch & Video Export") as app:
+    # Simple CSS
+    custom_css = """
+    #file_upload {
+        min-height: 120px !important;
+    }
+    """
+
+    with gr.Blocks(title="Anime Upscaler - Batch & Video Export", css=custom_css) as app:
         # Use translations based on current language
         t = TRANSLATIONS[state_module.current_language]
 
@@ -209,7 +216,8 @@ def create_app(vram_manager=None, vram_info_text=""):
                         label=t['upload_label'],
                         file_types=["image", "video"],
                         type="filepath",
-                        file_count="multiple"
+                        file_count="multiple",
+                        elem_id="file_upload"
                     )
                     file_summary = gr.Textbox(
                         label=t['files_summary'],
@@ -307,6 +315,18 @@ def create_app(vram_manager=None, vram_info_text=""):
                         label="⚡ Enable parallel image processing" if state_module.current_language == "en" else "⚡ Activer le traitement parallèle des images",
                         value=True,
                         info="Process multiple images simultaneously (auto-detects optimal worker count based on VRAM). Disable if experiencing stability issues." if state_module.current_language == "en" else "Traiter plusieurs images simultanément (détecte automatiquement le nombre optimal de workers selon la VRAM). Désactiver en cas de problèmes de stabilité."
+                    )
+
+                    # Parallel workers slider (visible only when parallel is enabled)
+                    parallel_workers = gr.Slider(
+                        minimum=1,
+                        maximum=8,
+                        value=2,  # Default value
+                        step=1,
+                        label=t.get('parallel_workers', '👷 Nombre de workers parallèles'),
+                        info=t.get('parallel_workers_info', 'Plus de workers = plus rapide, mais utilise plus de VRAM.'),
+                        visible=True,
+                        interactive=True
                     )
 
                     # VRAM info display
@@ -611,6 +631,13 @@ Vous pouvez facilement utiliser vos propres modèles d'upscaling !
             [suffix_group, custom_name_group]
         )
 
+        # Toggle parallel_workers visibility based on enable_parallel
+        enable_parallel.change(
+            lambda enabled: gr.update(visible=enabled),
+            [enable_parallel],
+            [parallel_workers]
+        )
+
         test_btn.click(
             test_image_upscale,
             [file_input, model_select, image_scale_radio, video_resolution_dropdown, output_format_select, jpeg_quality_slider,
@@ -630,7 +657,7 @@ Vous pouvez facilement utiliser vos propres modèles d'upscaling !
              codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check, keep_audio_check, frame_format_select,
              auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames_check,
              use_auto_settings, tile_size_slider, tile_overlap_slider, sharpening_slider, contrast_slider, saturation_slider,
-             video_naming_mode, video_suffix, video_custom_name, enable_parallel],
+             video_naming_mode, video_suffix, video_custom_name, enable_parallel, parallel_workers],
             [comparison_slider, gallery, status, output_folder, frame_slider, frame_label, download_info]
         )
 
