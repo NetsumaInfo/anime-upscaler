@@ -643,6 +643,109 @@ def _upscale_single_pass(
 
 
 # ============================================================================
+# Batch Upscaling Function (for video frame processing)
+# ============================================================================
+
+def upscale_batch(
+    frames: list,
+    model_name: str,
+    use_fp16: bool = True,
+    target_resolution: int = 0
+) -> list:
+    """
+    Upscale multiple frames in a single GPU batch call.
+    
+    This is MUCH faster than processing frames one by one because:
+    - Single model call processes all frames simultaneously
+    - GPU parallelism is fully utilized
+    - Reduced overhead from multiple tensor transfers
+    
+    IMPORTANT: All frames must have the same dimensions!
+    
+    Args:
+        frames: List of PIL Images (all same size)
+        model_name: Model display name
+        use_fp16: Use FP16 precision
+        target_resolution: Target height (0 = no resize, use 2x upscale)
+    
+    Returns:
+        List of upscaled PIL Images in same order
+    """
+    if not frames:
+        return []
+    
+    # Load model
+    model, actual_fp16, model_scale = load_model(model_name, use_fp16)
+    
+    # Determine dtype
+    if actual_fp16:
+        target_dtype = torch.float16
+    elif DEVICE == "cuda" and use_fp16:
+        target_dtype = torch.float16
+    else:
+        target_dtype = torch.float32
+    
+    # Convert all frames to numpy arrays
+    frames_np = []
+    for img in frames:
+        # Ensure RGB mode
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        frames_np.append(np.array(img, dtype=np.float32) / 255.0)
+    
+    # Stack into batch tensor [N, H, W, C]
+    batch_np = np.stack(frames_np, axis=0)
+    
+    # Convert to PyTorch format [N, C, H, W]
+    batch_tensor = torch.from_numpy(batch_np).permute(0, 3, 1, 2).to(
+        dtype=target_dtype, device=DEVICE
+    )
+    
+    n_frames = batch_tensor.shape[0]
+    print(f"🚀 Batch upscaling {n_frames} frames together...")
+    
+    # Single model call for ALL frames
+    with torch.inference_mode():
+        output_batch = model(batch_tensor)
+    
+    # Synchronize GPU before CPU transfer
+    if DEVICE == "cuda":
+        torch.cuda.synchronize()
+    
+    # Convert output to numpy [N, C, H, W] -> [N, H, W, C]
+    output_np = output_batch.permute(0, 2, 3, 1).float().cpu().numpy()
+    
+    # Clean NaN/Inf
+    if not np.isfinite(output_np).all():
+        output_np = np.nan_to_num(output_np, nan=0.5, posinf=1.0, neginf=0.0)
+    
+    # Clip to valid range
+    output_np = np.clip(output_np, 0.0, 1.0)
+    
+    # Convert each frame back to PIL Image
+    results = []
+    for i in range(n_frames):
+        frame_np = (output_np[i] * 255.0).round().astype(np.uint8)
+        result_img = Image.fromarray(frame_np, mode='RGB')
+        
+        # Resize if target_resolution specified
+        if target_resolution > 0 and result_img.height != target_resolution:
+            aspect_ratio = result_img.width / result_img.height
+            target_width = int(target_resolution * aspect_ratio)
+            result_img = result_img.resize((target_width, target_resolution), Image.Resampling.LANCZOS)
+        
+        results.append(result_img)
+    
+    # Clean up GPU memory
+    del batch_tensor, output_batch
+    if DEVICE == "cuda":
+        torch.cuda.empty_cache()
+    
+    print(f"✅ Batch upscaling complete: {n_frames} frames")
+    return results
+
+
+# ============================================================================
 # Main Upscaling Function
 # ============================================================================
 

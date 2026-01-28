@@ -191,8 +191,8 @@ TRANSLATIONS = {
         "info_help_title": "ℹ️ Info & Aide",
         "enable_parallel": "⚡ Activer le traitement parallèle des images",
         "enable_parallel_info": "Traiter plusieurs images simultanément (détection VRAM automatique)",
-        "parallel_workers": "👷 Nombre de workers parallèles",
-        "parallel_workers_info": "Plus de workers = plus rapide, mais utilise plus de VRAM. 2 par défaut."
+        "batch_size": "📦 Taille des batches (frames par lot)",
+        "batch_size_info": "Plus de frames par batch = plus rapide (si assez de VRAM). 2-4 recommandé."
     },
     "en": {
         "title": "🎨 Anime Upscaler - Batch & Video Export",
@@ -278,8 +278,8 @@ TRANSLATIONS = {
         "info_help_title": "ℹ️ Info & Help",
         "enable_parallel": "⚡ Enable parallel image processing",
         "enable_parallel_info": "Process multiple images simultaneously (automatic VRAM detection)",
-        "parallel_workers": "👷 Number of parallel workers",
-        "parallel_workers_info": "More workers = faster, but uses more VRAM. Default is 2."
+        "batch_size": "📦 Batch size (frames per batch)",
+        "batch_size_info": "More frames per batch = faster (if enough VRAM). 2-4 recommended."
     }
 }
 

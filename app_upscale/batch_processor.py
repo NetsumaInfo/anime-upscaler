@@ -22,7 +22,7 @@ from .state import (
 from .gpu import clear_gpu_memory, clear_gpu_memory_async, get_model_dtype
 from .file_utils import separate_files_by_type
 from .models import load_model
-from .image_processing import upscale_image, save_image_with_format
+from .image_processing import upscale_image, save_image_with_format, upscale_batch
 from .video_processing import (
     extract_frames, get_video_fps, encode_video,
     analyze_duplicate_frames, save_frame_with_format,
@@ -722,69 +722,118 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 status_messages.append(f"   - unique_frame_count={unique_frame_count} (need >1)")
 
                 if enable_parallel and vram_manager and unique_frame_count > 1:
-                    # PARALLEL MODE - Upscale ONLY unique frames
-                    status_messages.append(f"✅ {vid_name}: PARALLEL MODE ACTIVATED - Using {vram_manager.max_concurrent_jobs} workers")
-                    with ThreadPoolExecutor(max_workers=vram_manager.max_concurrent_jobs) as executor:
-                        # Submit ONLY unique frames for processing (duplicates skipped!)
-                        future_to_frame = {}
-                        for frame_path in frames_to_process:
+                    # BATCH MODE - Process multiple frames in single GPU calls
+                    batch_size = vram_manager.max_concurrent_jobs  # Use slider value as batch size
+                    status_messages.append(f"🚀 {vid_name}: BATCH MODE ACTIVATED - Processing {batch_size} frames per batch")
+                    
+                    # Group frames into batches
+                    batches = []
+                    for i in range(0, len(frames_to_process), batch_size):
+                        batch = frames_to_process[i:i + batch_size]
+                        batches.append(batch)
+                    
+                    status_messages.append(f"📦 {vid_name}: Created {len(batches)} batches from {unique_frame_count} unique frames")
+                    
+                    # Process each batch
+                    for batch_idx, batch_paths in enumerate(batches):
+                        if check_processing_state("stop"):
+                            break
+                        
+                        while check_processing_state("paused"):
+                            time.sleep(0.1)
                             if check_processing_state("stop"):
                                 break
-
-                            future = executor.submit(
-                                upscale_video_frame_worker,
-                                frame_path, model, video_settings, vram_manager, frame_format
+                        
+                        # Load batch frames as PIL Images
+                        batch_frames = []
+                        batch_orig = []
+                        valid_paths = []
+                        
+                        for frame_path in batch_paths:
+                            try:
+                                img = Image.open(frame_path)
+                                batch_frames.append(img.copy())
+                                batch_orig.append(img.copy())
+                                valid_paths.append(frame_path)
+                            except Exception as e:
+                                status_messages.append(f"❌ Error loading {Path(frame_path).name}: {e}")
+                        
+                        if not batch_frames:
+                            continue
+                        
+                        print(f"🔄 Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_frames)} frames)...")
+                        
+                        # Upscale entire batch in single GPU call
+                        try:
+                            batch_results = upscale_batch(
+                                batch_frames,
+                                model,
+                                video_settings['use_fp16'],
+                                video_settings['target_resolution']
                             )
-                            future_to_frame[future] = frame_path
-
-                        # Track all active CUDA streams for batch-level sync
-                        active_streams = []
-
-                        # Collect results as they complete
-                        for future in as_completed(future_to_frame):
-                            if check_processing_state("stop"):
-                                break
-
-                            while check_processing_state("paused"):
-                                time.sleep(0.1)
-                                if check_processing_state("stop"):
-                                    break
-
-                            frame_path_str, result_img, orig_img, stream, error = future.result()
-
-                            if error:
-                                status_messages.append(f"❌ Error upscaling frame {Path(frame_path_str).name}: {error}")
-                                continue
-
-                            # Store result (PIL images already have synced data via .cpu())
-                            # CRITICAL: Normalize path to match keys in frame_output_mapping
-                            normalized_path = os.path.normpath(os.path.abspath(frame_path_str))
-                            upscaled_results[normalized_path] = (result_img, orig_img)
-
-                            # Track active stream for optional additional sync
-                            if stream is not None:
-                                active_streams.append(stream)
-
-                            frames_completed += 1
-
-                            # Update progress
-                            if progress:
-                                progress(0.15 + (frames_completed / unique_frame_count) * 0.7,
-                                        desc=f"{vid_name} - Upscaled {frames_completed}/{unique_frame_count} unique frames")
-
+                            
+                            # IMMEDIATE SAVE: Save each frame right after upscaling
+                            for i, (frame_path, result_img, orig_img) in enumerate(zip(valid_paths, batch_results, batch_orig)):
+                                # Find the output path for this frame from the mapping
+                                normalized_input = os.path.normpath(os.path.abspath(frame_path))
+                                
+                                # Find the frame index and output path from mapping
+                                for frame_idx, frame_info in frame_output_mapping.items():
+                                    frame_unique = os.path.normpath(os.path.abspath(frame_info["unique_frame"]))
+                                    if frame_unique == normalized_input and not frame_info["is_duplicate"]:
+                                        output_path = Path(frame_info["output_path"])
+                                        
+                                        # Save immediately
+                                        save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
+                                        
+                                        # Track for duplicate copying
+                                        upscaled_results[normalized_input] = output_path
+                                        
+                                        # Update UI (first 100 frames only)
+                                        if frames_completed < 100:
+                                            all_results.append(rgba_to_rgb_for_display(result_img))
+                                            orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
+                                            state_module.frame_pairs.append((
+                                                rgba_to_rgb_for_display(orig_resized),
+                                                rgba_to_rgb_for_display(result_img)
+                                            ))
+                                            orig_resized.close()
+                                        
+                                        frames_completed += 1
+                                        break
+                                
+                                # Close images to free memory
+                                result_img.close()
+                                orig_img.close()
+                            
+                            print(f"✅ Batch {batch_idx + 1}: {len(batch_results)} frames upscaled and SAVED")
+                            
+                        except Exception as e:
+                            status_messages.append(f"❌ Batch {batch_idx + 1} failed: {e}")
+                            print(f"❌ Batch error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                        
+                        # Close source images to free memory
+                        for img in batch_frames:
+                            try:
+                                img.close()
+                            except:
+                                pass
+                        
+                        # Update progress
+                        if progress:
+                            progress(0.15 + (frames_completed / unique_frame_count) * 0.8,
+                                    desc=f"{vid_name} - Batch {batch_idx + 1}/{len(batches)} ({frames_completed}/{unique_frame_count} frames saved)")
+                    
                     if skip_duplicate_frames and stats['duplicates'] > 0:
                         status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
                     else:
-                        status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled in parallel")
-
-                    # ✅ BATCH-LEVEL CLEANUP: All streams already synchronized inside workers
-                    # This is redundant with per-worker sync but ensures all GPU ops complete before cleanup
-                    if DEVICE == "cuda" and active_streams:
-                        print(f"⏳ {vid_name}: Final cleanup ({len(active_streams)} streams)...")
-                        for stream in active_streams:
-                            stream.synchronize()  # Redundant but safe
-                        print(f"✅ {vid_name}: All GPU work verified complete")
-                        clear_gpu_memory()  # Now safe to clean up
+                        status_messages.append(f"✅ {vid_name}: {frames_completed} frames upscaled and saved")
+                    
+                    # Cleanup GPU memory after all batches
+                    if DEVICE == "cuda":
+                        clear_gpu_memory()
 
                 else:
                     # SEQUENTIAL FALLBACK (if parallel disabled or single unique frame)
@@ -844,7 +893,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
                 # ============================================================
                 # PASS 1: Save ALL unique frames from upscaled_results
+                # For BATCH MODE: Frames already saved, upscaled_results contains output paths
+                # For SEQUENTIAL MODE: upscaled_results contains (result_img, orig_img) tuples
                 # ============================================================
+                print(f"🔵 PHASE 3: Processing save phase. upscaled_results has {len(upscaled_results)} entries, total_frames={total_frames}")
+                
                 for frame_idx in range(total_frames):
                     if check_processing_state("stop"):
                         break
@@ -853,7 +906,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     is_duplicate = frame_info["is_duplicate"]
 
                     if not is_duplicate:
-                        # This is a unique frame - save it now
+                        # This is a unique frame
                         unique_frame_raw = frame_info["unique_frame"]
                         unique_frame = os.path.normpath(os.path.abspath(unique_frame_raw))
                         output_path = Path(frame_info["output_path"])
@@ -864,24 +917,29 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                             status_messages.append(f"⚠️ {vid_name}: Unique frame {frame_idx} missing from upscaled results")
                             continue
 
-                        result_img, orig_img = upscaled_results[unique_frame]
+                        result_data = upscaled_results[unique_frame]
+                        
+                        # Check if it's already a Path (batch mode - already saved)
+                        if isinstance(result_data, Path):
+                            # Batch mode: frame already saved, just track for duplicates
+                            saved_unique_frames[unique_frame] = result_data
+                        else:
+                            # Sequential mode: result_data is (result_img, orig_img) tuple
+                            result_img, orig_img = result_data
+                            
+                            # Save with format
+                            save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
+                            saved_unique_frames[unique_frame] = output_path
 
-                        # Save with format (PNG compression + I/O)
-                        save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
-
-                        # Track saved file for duplicate copying (PASS 2)
-                        saved_unique_frames[unique_frame] = output_path
-
-                        # Update UI with frame pair (only for first 100 unique frames)
-                        if frame_idx < 100:
-                            all_results.append(rgba_to_rgb_for_display(result_img))
-                            orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
-                            state_module.frame_pairs.append((
-                                rgba_to_rgb_for_display(orig_resized),
-                                rgba_to_rgb_for_display(result_img)
-                            ))
-                            orig_resized.close()
-                            del orig_resized
+                            # Update UI (first 100 frames)
+                            if frame_idx < 100:
+                                all_results.append(rgba_to_rgb_for_display(result_img))
+                                orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
+                                state_module.frame_pairs.append((
+                                    rgba_to_rgb_for_display(orig_resized),
+                                    rgba_to_rgb_for_display(result_img)
+                                ))
+                                orig_resized.close()
 
                 unique_saved = len(saved_unique_frames)
 
@@ -929,9 +987,16 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                         status_messages.append(f"💾 {vid_name}: Successfully saved all {total_frames} frames")
 
                 # Cleanup upscaled results from memory
-                for result_img, orig_img in upscaled_results.values():
-                    result_img.close()
-                    orig_img.close()
+                # Batch mode: values are Path objects (already closed during save)
+                # Sequential mode: values are (result_img, orig_img) tuples
+                for result_data in upscaled_results.values():
+                    if not isinstance(result_data, Path):
+                        result_img, orig_img = result_data
+                        try:
+                            result_img.close()
+                            orig_img.close()
+                        except:
+                            pass
                 upscaled_results.clear()
                 del upscaled_results
 

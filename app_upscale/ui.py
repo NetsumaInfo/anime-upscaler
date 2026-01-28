@@ -317,14 +317,14 @@ def create_app(vram_manager=None, vram_info_text=""):
                         info="Process multiple images simultaneously (auto-detects optimal worker count based on VRAM). Disable if experiencing stability issues." if state_module.current_language == "en" else "Traiter plusieurs images simultanément (détecte automatiquement le nombre optimal de workers selon la VRAM). Désactiver en cas de problèmes de stabilité."
                     )
 
-                    # Parallel workers slider (visible only when parallel is enabled)
-                    parallel_workers = gr.Slider(
+                    # Batch size slider (visible only when parallel is enabled)
+                    batch_size = gr.Slider(
                         minimum=1,
                         maximum=8,
                         value=2,  # Default value
                         step=1,
-                        label=t.get('parallel_workers', '👷 Nombre de workers parallèles'),
-                        info=t.get('parallel_workers_info', 'Plus de workers = plus rapide, mais utilise plus de VRAM.'),
+                        label=t.get('batch_size', '📦 Taille des batches'),
+                        info=t.get('batch_size_info', 'Plus de frames par batch = plus rapide.'),
                         visible=True,
                         interactive=True
                     )
@@ -631,11 +631,11 @@ Vous pouvez facilement utiliser vos propres modèles d'upscaling !
             [suffix_group, custom_name_group]
         )
 
-        # Toggle parallel_workers visibility based on enable_parallel
+        # Toggle batch_size visibility based on enable_parallel
         enable_parallel.change(
             lambda enabled: gr.update(visible=enabled),
             [enable_parallel],
-            [parallel_workers]
+            [batch_size]
         )
 
         test_btn.click(
@@ -657,7 +657,7 @@ Vous pouvez facilement utiliser vos propres modèles d'upscaling !
              codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check, keep_audio_check, frame_format_select,
              auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames_check,
              use_auto_settings, tile_size_slider, tile_overlap_slider, sharpening_slider, contrast_slider, saturation_slider,
-             video_naming_mode, video_suffix, video_custom_name, enable_parallel, parallel_workers],
+             video_naming_mode, video_suffix, video_custom_name, enable_parallel, batch_size],
             [comparison_slider, gallery, status, output_folder, frame_slider, frame_label, download_info]
         )
 
