@@ -138,6 +138,8 @@ Cliquez sur **"▶️ Run Batch"** pour démarrer.
 - ⏸️ **Pause** - Met en pause
 - ⏹️ **Stop** - Arrête complètement
 
+> ⚠️ **Note importante:** L'aperçu affiché dans l'interface Gradio présente une qualité légèrement dégradée pour des raisons de performance. La qualité réelle des fichiers sauvegardés dans le dossier de sortie est supérieure.
+
 ---
 
 ## 🎬 Export Vidéo
