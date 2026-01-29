@@ -426,7 +426,7 @@ def create_app(vram_manager=None, vram_info_text=""):
                     )
 
                 # Naming section (separate accordion)
-                nommage_accordion = gr.Accordion("📄 Nommage", open=False)
+                nommage_accordion = gr.Accordion(t['video_naming_title'], open=False)
                 with nommage_accordion:
                     video_naming_mode = gr.Radio(
                         choices=[t['naming_same'], t['naming_suffix'], t['naming_custom']],
@@ -519,7 +519,345 @@ def create_app(vram_manager=None, vram_info_text=""):
                 download_info = gr.Textbox(label=t['download_info'], interactive=False, lines=3)
                 output_folder = gr.Textbox(label=t['output_folder'], interactive=False)
 
-        # Info section removed for minimal UI - see documentation for details
+        # Info section (closed by default)
+        info_title = "ℹ️ Info" if state_module.current_language == "en" else "ℹ️ Informations"
+        with gr.Accordion(info_title, open=False):
+            if state_module.current_language == "en":
+                gr.Markdown("""
+**Version:** 3.0 (Async Pipeline + Batch Processing)
+
+---
+
+## 📋 COMPLETE PARAMETERS GUIDE
+
+### 🖼️ **Image Format & Scale**
+
+**Scale (×1, ×2, ×4, ×8, ×16):**
+- **×1** - No upscaling, only model processing (denoising, color correction)
+- **×2** - Double resolution (1920×1080 → 3840×2160) [Default, recommended]
+- **×4** - 4x resolution (2 passes of ×2)
+- **×8** - 8x resolution (3 passes of ×2, tile size auto-reduced to 256px)
+- **×16** - 16x resolution (4 passes of ×2, tile size auto-reduced to 128px)
+
+**Output Format:**
+- **PNG** - Lossless, large files, supports transparency
+- **JPEG** - Lossy compression, small files, no transparency (quality 80-100)
+- **WebP** - Best quality/size ratio, supports transparency
+
+**Video Frame Format:**
+- **PNG 8-bit** - Standard quality, reasonable file size
+- **PNG 16-bit** - Maximum quality, large files
+- **JPEG 95-100** - Good quality, smaller files (no transparency)
+
+---
+
+### 🎨 **Upscaling Parameters**
+
+**🤖 Auto Mode (Recommended):**
+- ✅ **ON** - Automatic optimal settings (tile size 512px, overlap 32px, no post-processing)
+- ❌ **OFF** - Manual control of all parameters below
+
+**Tile Settings (Manual Mode Only):**
+
+🧩 **Why split into tiles?** Large images don't fit in GPU memory → we cut them into **small squares (tiles)** like a puzzle. Each square is processed separately, then all squares are reassembled.
+
+- **Tile Size (256-1024px):**
+  - 📏 **Size of each square** (in pixels)
+  - **256px** - Small squares → GPU with low memory (4GB)
+  - **384px** - Medium squares → Average GPU (6GB)
+  - **512px** - Standard squares → Normal GPU (8GB) [**Default**]
+  - **768-1024px** - Large squares → Powerful GPU (12GB+)
+  - ⚠️ Larger squares = faster (fewer squares) but need more GPU memory
+  - ⚠️ If too large → "Out of Memory" error
+
+- **Tile Overlap (16-64px):**
+  - 🔗 **Problem:** When reassembling squares, you can see **a visible line/bar** between them
+  - 💡 **Solution:** Make the edges of squares **overlap** (superimpose a bit), so the line disappears
+  - **16px** - Small overlap (faster, but may see lines/bars)
+  - **32px** - Normal overlap [**Default**] (good balance, lines barely visible)
+  - **48-64px** - Large overlap (no visible lines, perfect result, but slower)
+  - ⚠️ More overlap = better quality but slower
+
+**Post-Processing (Manual Mode Only):**
+- **Sharpening (0.0-2.0):**
+  - 0.0 = No sharpening
+  - 0.5-1.0 = Moderate (recommended for anime)
+  - 1.5-2.0 = Strong (use with caution)
+
+- **Contrast (0.8-1.2):**
+  - <1.0 = Reduce contrast
+  - 1.0 = Original [Default]
+  - >1.0 = Increase contrast
+
+- **Saturation (0.8-1.2):**
+  - <1.0 = Desaturate
+  - 1.0 = Original [Default]
+  - >1.0 = Increase saturation
+
+---
+
+### ⚡ **Advanced Settings**
+
+**Precision Mode:**
+- **None** - Automatic (PyTorch decides)
+- **FP16** - Half precision (50% less VRAM, faster) [Recommended]
+- **FP32** - Full precision (slower, more VRAM, maximum quality)
+
+**Enable Parallel Image Processing:**
+- ✅ **ON** - Process multiple images simultaneously (auto workers based on VRAM)
+- ❌ **OFF** - Sequential processing (1 image at a time)
+- Auto-detects optimal worker count: 4GB=1, 6GB=3, 8GB=5, 12GB+=8 workers
+
+**Batch Size (1-8):**
+- Number of frames/images processed simultaneously per worker
+- Higher = faster but more VRAM needed
+- **Default:** 3 (balanced)
+
+---
+
+### 🎬 **Video Export**
+
+**Resolution:**
+- **Auto (2x upscale)** - Doubles video resolution [Default]
+- **720p/1080p/1440p/2160p/4320p** - Fixed output resolution
+
+**Export Videos:**
+- ✅ **ON** - Encode video after frame upscaling
+- ❌ **OFF** - Keep only upscaled frames (no video file)
+
+**Codec:**
+- **H.264 (AVC)** - Universal compatibility, good compression (.mp4)
+- **H.265 (HEVC)** - Better compression, smaller files (.mp4)
+- **ProRes** - Professional editing, large files (.mov)
+- **DNxHD/DNxHR** - Broadcast quality, large files (.mov)
+
+**FPS (0-60):**
+- **0** - Preserve original FPS [Default, recommended]
+- **24** - Cinema standard
+- **30** - Standard video
+- **60** - High frame rate
+
+**Preserve Transparency:**
+- ✅ **ON** - Keep alpha channel (requires ProRes 4444/XQ or DNxHR 444)
+- ❌ **OFF** - No transparency
+
+**Keep Audio:**
+- ✅ **ON** - Preserve original audio track [Default]
+- ❌ **OFF** - Silent video
+
+**Skip Duplicate Frames:**
+- ✅ **ON** - Detect and skip identical frames (2-8x faster on static scenes)
+- ❌ **OFF** - Process all frames
+
+---
+
+### 📁 **Organization & Cleanup**
+
+**File Naming:**
+- **Same as input** - Output keeps original name
+- **Add suffix** - Append custom suffix (e.g., "_upscaled")
+- **Custom name** - Completely rename output
+
+**Auto Cleanup (Videos):**
+- **Delete input frames** - Remove extracted original frames after processing
+- **Delete upscaled frames** - Remove upscaled frames after video encoding
+- **Delete extraction folder** - Remove entire processing folder when done
+- **Delete JSON mapping** - Remove duplicate frame mapping file
+
+**Folder Organization:**
+- **Dedicated images/ folder** - All images → `output/images/`
+- **Dedicated videos/ folder** - All videos → `output/videos/`
+
+---
+
+## 📦 **Recommended Models**
+
+| Model | Usage | Speed | Quality |
+|-------|-------|-------|---------|
+| **Ani4K v2 Compact** ⭐ | Modern HD anime | Fast | Excellent |
+| AniToon Medium | Old/low-quality anime | Medium | Very Good |
+| OpenProteus Compact | Videos/general use | Fast | Good |
+
+**Add Custom Models:**
+1. Download from [OpenModelDB](https://openmodeldb.info/)
+2. Place `.pth` or `.safetensors` files in `models/` folder
+3. Restart app → auto-detected ✨
+
+---
+
+## 📁 **Formats Supported**
+
+- **Images:** JPG, PNG, WebP, BMP, GIF
+- **Videos:** MP4, MOV, AVI, WebM, MKV
+                """)
+            else:
+                gr.Markdown("""
+**Version :** 3.0 (Pipeline Asynchrone + Traitement par Batch)
+
+---
+
+## 📋 GUIDE COMPLET DES PARAMÈTRES
+
+### 🖼️ **Image Format & Échelle**
+
+**Échelle (×1, ×2, ×4, ×8, ×16) :**
+- **×1** - Pas d'upscaling, traitement seul (débruitage, correction couleurs)
+- **×2** - Double la résolution (1920×1080 → 3840×2160) [Défaut, recommandé]
+- **×4** - 4x résolution (2 passes de ×2)
+- **×8** - 8x résolution (3 passes de ×2, taille tuile auto-réduite à 256px)
+- **×16** - 16x résolution (4 passes de ×2, taille tuile auto-réduite à 128px)
+
+**Format de Sortie :**
+- **PNG** - Sans perte, fichiers volumineux, support transparence
+- **JPEG** - Compression, petits fichiers, pas de transparence (qualité 80-100)
+- **WebP** - Meilleur ratio qualité/taille, support transparence
+
+**Format Frames Vidéo :**
+- **PNG 8-bit** - Qualité standard, taille raisonnable
+- **PNG 16-bit** - Qualité maximale, fichiers volumineux
+- **JPEG 95-100** - Bonne qualité, fichiers plus petits (pas de transparence)
+
+---
+
+### 🎨 **Paramètres Upscaling**
+
+**🤖 Mode Auto (Recommandé) :**
+- ✅ **ON** - Paramètres optimaux automatiques (tuile 512px, overlap 32px, pas de post-processing)
+- ❌ **OFF** - Contrôle manuel de tous les paramètres ci-dessous
+
+**Paramètres Tuiles (Mode Manuel Uniquement) :**
+
+🧩 **Pourquoi découper en tuiles ?** Les grandes images ne tiennent pas en mémoire GPU → on les découpe en **petits carrés (tuiles)** comme un puzzle. Chaque carré est traité séparément, puis tous les carrés sont recollés ensemble.
+
+- **Taille Tuile (256-1024px) :**
+  - 📏 **Taille de chaque carré** (en pixels)
+  - **256px** - Petits carrés → GPU avec peu de mémoire (4GB)
+  - **384px** - Carrés moyens → GPU moyenne mémoire (6GB)
+  - **512px** - Carrés standards → GPU normale (8GB) [**Défaut**]
+  - **768-1024px** - Grands carrés → GPU puissante (12GB+)
+  - ⚠️ Carrés plus grands = plus rapide (moins de carrés) mais plus de mémoire GPU nécessaire
+  - ⚠️ Si trop grand → erreur "Out of Memory" (pas assez de mémoire)
+
+- **Chevauchement (16-64px) :**
+  - 🔗 **Problème :** Quand on recolle les carrés, on peut voir **une barre/ligne visible** entre eux
+  - 💡 **Solution :** On fait se **chevaucher** les bords des carrés (ils se superposent un peu), comme ça la ligne disparaît
+  - **16px** - Petite superposition (plus rapide, mais peut voir des barres/lignes)
+  - **32px** - Superposition normale [**Défaut**] (bon équilibre, barres quasi invisibles)
+  - **48-64px** - Grande superposition (aucune barre visible, résultat parfait, mais plus lent)
+  - ⚠️ Plus de superposition = meilleure qualité mais plus lent
+
+**Post-Processing (Mode Manuel Uniquement) :**
+- **Netteté (0.0-2.0) :**
+  - 0.0 = Pas de netteté
+  - 0.5-1.0 = Modéré (recommandé pour anime)
+  - 1.5-2.0 = Fort (utiliser avec précaution)
+
+- **Contraste (0.8-1.2) :**
+  - <1.0 = Réduire contraste
+  - 1.0 = Original [Défaut]
+  - >1.0 = Augmenter contraste
+
+- **Saturation (0.8-1.2) :**
+  - <1.0 = Désaturer
+  - 1.0 = Original [Défaut]
+  - >1.0 = Augmenter saturation
+
+---
+
+### ⚡ **Paramètres Avancés**
+
+**Mode de Précision :**
+- **None** - Automatique (PyTorch décide)
+- **FP16** - Demi-précision (50% moins VRAM, plus rapide) [Recommandé]
+- **FP32** - Précision complète (plus lent, plus de VRAM, qualité maximale)
+
+**Activer Traitement Parallèle Images :**
+- ✅ **ON** - Traiter plusieurs images simultanément (workers auto selon VRAM)
+- ❌ **OFF** - Traitement séquentiel (1 image à la fois)
+- Détection auto workers optimaux : 4GB=1, 6GB=3, 8GB=5, 12GB+=8 workers
+
+**Taille Batch (1-8) :**
+- Nombre de frames/images traitées simultanément par worker
+- Plus élevé = plus rapide mais plus de VRAM nécessaire
+- **Défaut :** 3 (équilibré)
+
+---
+
+### 🎬 **Export Vidéo**
+
+**Résolution :**
+- **Auto (2x upscale)** - Double la résolution vidéo [Défaut]
+- **720p/1080p/1440p/2160p/4320p** - Résolution de sortie fixe
+
+**Exporter Vidéos :**
+- ✅ **ON** - Encoder vidéo après upscaling frames
+- ❌ **OFF** - Garder seulement frames upscalées (pas de fichier vidéo)
+
+**Codec :**
+- **H.264 (AVC)** - Compatibilité universelle, bonne compression (.mp4)
+- **H.265 (HEVC)** - Meilleure compression, fichiers plus petits (.mp4)
+- **ProRes** - Montage professionnel, fichiers volumineux (.mov)
+- **DNxHD/DNxHR** - Qualité broadcast, fichiers volumineux (.mov)
+
+**FPS (0-60) :**
+- **0** - Préserver FPS original [Défaut, recommandé]
+- **24** - Standard cinéma
+- **30** - Vidéo standard
+- **60** - Haute fréquence d'images
+
+**Préserver Transparence :**
+- ✅ **ON** - Garder canal alpha (nécessite ProRes 4444/XQ ou DNxHR 444)
+- ❌ **OFF** - Pas de transparence
+
+**Conserver Audio :**
+- ✅ **ON** - Préserver piste audio originale [Défaut]
+- ❌ **OFF** - Vidéo muette
+
+**Ignorer Frames Dupliquées :**
+- ✅ **ON** - Détecter et ignorer frames identiques (2-8x plus rapide sur scènes statiques)
+- ❌ **OFF** - Traiter toutes les frames
+
+---
+
+### 📁 **Organisation & Nettoyage**
+
+**Nommage Fichiers :**
+- **Même nom que l'original** - La sortie garde le nom original
+- **Ajouter suffixe** - Ajouter suffixe personnalisé (ex: "_upscaled")
+- **Nom personnalisé** - Renommer complètement la sortie
+
+**Nettoyage Auto (Vidéos) :**
+- **Supprimer frames entrée** - Retirer frames originales extraites après traitement
+- **Supprimer frames sortie** - Retirer frames upscalées après encodage vidéo
+- **Supprimer dossier extraction** - Retirer dossier complet de traitement à la fin
+- **Supprimer JSON mapping** - Retirer fichier de mapping frames dupliquées
+
+**Organisation Dossiers :**
+- **Dossier images/ dédié** - Toutes images → `output/images/`
+- **Dossier videos/ dédié** - Toutes vidéos → `output/videos/`
+
+---
+
+## 📦 **Modèles Recommandés**
+
+| Modèle | Usage | Vitesse | Qualité |
+|--------|-------|---------|---------|
+| **Ani4K v2 Compact** ⭐ | Anime moderne HD | Rapide | Excellente |
+| AniToon Medium | Anime ancien/basse qualité | Moyenne | Très Bonne |
+| OpenProteus Compact | Vidéos/usage général | Rapide | Bonne |
+
+**Ajouter Modèles Personnalisés :**
+1. Télécharger depuis [OpenModelDB](https://openmodeldb.info/)
+2. Placer fichiers `.pth` ou `.safetensors` dans dossier `models/`
+3. Redémarrer app → détection auto ✨
+
+---
+
+## 📁 **Formats Supportés**
+
+- **Images :** JPG, PNG, WebP, BMP, GIF
+- **Vidéos :** MP4, MOV, AVI, WebM, MKV
+                """)
 
         # Event handlers
         file_input.change(show_file_summary, [file_input], [file_summary])

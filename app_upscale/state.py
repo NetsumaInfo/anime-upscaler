@@ -27,7 +27,29 @@ processing_state = {
 frame_pairs: List[Tuple[Image.Image, Image.Image]] = []
 
 # Current language for multilingual UI
-current_language = "fr"  # Default, will be set from config
+current_language = "fr"  # Default: French
+
+
+def set_language(lang: str) -> None:
+    """
+    Set the current UI language.
+
+    Args:
+        lang: Language code ("fr" or "en")
+    """
+    global current_language
+    if lang in ["fr", "en"]:
+        current_language = lang
+
+
+def get_language() -> str:
+    """
+    Get the current UI language.
+
+    Returns:
+        Current language code ("fr" or "en")
+    """
+    return current_language
 
 # ============================================================================
 # Thread-Safe State Access Functions

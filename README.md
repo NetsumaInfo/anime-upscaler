@@ -202,13 +202,50 @@ output/20260122_143000/
 - **FP32** - Précision maximale (plus lent, plus de VRAM)
 - **None** - Automatique (PyTorch décide)
 
-### Tile Settings
+### Tile Settings (Paramètres Tuiles)
 
-Utilisez des tiles plus petits si vous manquez de VRAM:
+🧩 **Pourquoi découper en tuiles ?**
+Les grandes images ne tiennent pas en mémoire GPU → on les découpe en **petits carrés (tuiles)** comme un puzzle.
+Chaque carré est traité séparément, puis tous les carrés sont recollés ensemble.
 
-- **256px** - GPU 4GB
-- **512px** - GPU 8GB+ (recommandé)
-- **1024px** - GPU 12GB+
+#### Taille Tuile (Tile Size)
+
+📏 **Taille de chaque carré** (en pixels):
+
+- **256px** - Petits carrés → GPU avec peu de mémoire (4GB)
+- **384px** - Carrés moyens → GPU moyenne mémoire (6GB)
+- **512px** - Carrés standards → GPU normale (8GB) [**Recommandé**]
+- **768px** - Grands carrés → GPU puissante (10-12GB)
+- **1024px** - Très grands carrés → GPU très puissante (12GB+)
+
+⚠️ **Plus les carrés sont grands:**
+- ✅ Plus rapide (moins de carrés à traiter)
+- ❌ Plus de mémoire GPU nécessaire
+- ⚠️ Si trop grand → erreur "Out of Memory" (pas assez de mémoire)
+
+#### Chevauchement (Tile Overlap)
+
+🔗 **Problème:** Quand on recolle les carrés, on peut voir **une barre/ligne visible** entre eux.
+
+💡 **Solution:** On fait se **chevaucher** les bords des carrés (ils se superposent un peu), comme ça la ligne disparaît.
+
+**Taille de la zone qui se superpose:**
+
+- **16px** - Petite superposition
+  - ✅ Plus rapide
+  - ❌ Risque de voir des barres/lignes entre les carrés
+
+- **32px** - Superposition normale (recommandé)
+  - ✅ Bon équilibre vitesse/qualité
+  - ✅ Barres quasi invisibles
+
+- **48-64px** - Grande superposition
+  - ✅ Aucune barre visible (résultat parfait)
+  - ❌ Plus lent (plus de calculs)
+
+💡 **Recommandation:** Gardez les valeurs par défaut (512px / 32px) sauf si:
+- Erreur "Out of Memory" → Réduire **Taille Tuile** (carrés plus petits)
+- Vous voyez des lignes/barres dans le résultat → Augmenter **Chevauchement**
 
 ### Organisation & Nettoyage
 
