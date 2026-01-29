@@ -34,7 +34,7 @@ python app.py
 ```
 
 **Prérequis:**
-- Python 3.10+
+- Python 3.10, 3.11 ou 3.12 (⚠️ Python 3.13+ non supporté par PyTorch)
 - FFmpeg et FFprobe dans le PATH (pour vidéos)
 - GPU NVIDIA recommandé
 

@@ -18,16 +18,43 @@ python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ❌ Python non trouvé!
     echo.
-    echo Installez Python 3.10+ depuis https://www.python.org/downloads/
+    echo Installez Python 3.10, 3.11 ou 3.12 depuis https://www.python.org/downloads/
     echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
     echo.
     pause
     exit /b 1
 )
 
-:: Display Python version
+:: Display Python version and check compatibility
 for /f "tokens=*" %%i in ('python --version') do set PYTHON_VERSION=%%i
 echo ✅ %PYTHON_VERSION% détecté
+
+:: Check Python version compatibility (PyTorch requires 3.8-3.12)
+for /f "tokens=2 delims= " %%v in ('python --version') do set PY_VER=%%v
+for /f "tokens=1,2 delims=." %%a in ("%PY_VER%") do (
+    set PY_MAJOR=%%a
+    set PY_MINOR=%%b
+)
+
+:: Python 3.13+ is NOT supported by PyTorch yet
+if %PY_MAJOR% GEQ 3 if %PY_MINOR% GEQ 13 (
+    echo.
+    echo ⚠️ ════════════════════════════════════════════════════════════════════
+    echo ⚠️  ATTENTION: Python %PY_VER% n'est PAS compatible avec PyTorch!
+    echo ⚠️  PyTorch supporte actuellement Python 3.8 à 3.12 uniquement.
+    echo ⚠️  
+    echo ⚠️  Veuillez installer Python 3.10, 3.11 ou 3.12:
+    echo ⚠️  https://www.python.org/downloads/release/python-3120/
+    echo ⚠️ ════════════════════════════════════════════════════════════════════
+    echo.
+    pause
+    exit /b 1
+)
+
+:: Python 3.8-3.9 works but 3.10+ recommended
+if %PY_MAJOR% EQU 3 if %PY_MINOR% LSS 10 (
+    echo ⚠️ Python %PY_VER% fonctionne mais Python 3.10+ est recommandé
+)
 
 :: Check FFmpeg
 echo.
