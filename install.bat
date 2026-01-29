@@ -18,11 +18,26 @@ python --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo ❌ Python non trouvé!
     echo.
-    echo Installez Python 3.10, 3.11 ou 3.12 depuis https://www.python.org/downloads/
-    echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
+    echo 🔧 Tentative d'installation automatique de Python 3.12...
+    winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
+    if %errorlevel% neq 0 (
+        echo.
+        echo ❌ Installation automatique échouée!
+        echo.
+        echo Installez Python 3.10, 3.11 ou 3.12 depuis https://www.python.org/downloads/
+        echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
+        echo.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo ✅ Python 3.12 installé avec succès!
+    echo.
+    echo ⚠️ IMPORTANT: Fermez cette fenêtre et relancez install.bat
+    echo    pour utiliser Python.
     echo.
     pause
-    exit /b 1
+    exit /b 0
 )
 
 :: Display Python version and check compatibility
@@ -42,13 +57,30 @@ if %PY_MAJOR% GEQ 3 if %PY_MINOR% GEQ 13 (
     echo ⚠️ ════════════════════════════════════════════════════════════════════
     echo ⚠️  ATTENTION: Python %PY_VER% n'est PAS compatible avec PyTorch!
     echo ⚠️  PyTorch supporte actuellement Python 3.8 à 3.12 uniquement.
-    echo ⚠️  
-    echo ⚠️  Veuillez installer Python 3.10, 3.11 ou 3.12:
-    echo ⚠️  https://www.python.org/downloads/release/python-3120/
     echo ⚠️ ════════════════════════════════════════════════════════════════════
     echo.
+    echo 🔧 Tentative d'installation automatique de Python 3.12...
+    winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
+    if %errorlevel% neq 0 (
+        echo.
+        echo ❌ Installation automatique échouée!
+        echo.
+        echo Téléchargez Python 3.12 manuellement:
+        echo https://www.python.org/downloads/release/python-3120/
+        echo.
+        echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
+        echo.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo ✅ Python 3.12 installé avec succès!
+    echo.
+    echo ⚠️ IMPORTANT: Fermez cette fenêtre et relancez install.bat
+    echo    pour utiliser la nouvelle version de Python.
+    echo.
     pause
-    exit /b 1
+    exit /b 0
 )
 
 :: Python 3.8-3.9 works but 3.10+ recommended
