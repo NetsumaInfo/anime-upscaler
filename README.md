@@ -36,7 +36,7 @@ python app.py
 **Prérequis:**
 - Python 3.10+
 - FFmpeg et FFprobe dans le PATH (pour vidéos)
-- GPU NVIDIA recommandé (8GB+ VRAM)
+- GPU NVIDIA recommandé
 
 ---
 
@@ -106,7 +106,7 @@ Cliquez sur **"🧪 Test First Image"** pour tester rapidement le premier fichie
 > 💡 **Astuce:** Ani4K v2 Compact est le meilleur compromis pour la plupart des utilisations.
 
 **➕ Ajouter vos propres modèles:**
-1. Téléchargez depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) ou [OpenModelDB](https://openmodeldb.info/)
+1. Téléchargez depuis [OpenModelDB](https://openmodeldb.info/)
 2. Placez les fichiers `.pth` ou `.safetensors` dans `models/`
 3. Redémarrez l'application → détection automatique ✨
 
@@ -269,7 +269,9 @@ Contributions bienvenues! Ouvrez une issue ou pull request sur GitHub.
 
 ## 📝 Licence
 
-MIT License - Utilisation libre pour projets personnels et commerciaux.
+**Code source:** MIT License - Utilisation libre pour projets personnels et commerciaux.
+
+**Modèles AI:** Les modèles téléchargés restent sous les droits de leurs propriétaires respectifs. Consultez les licences individuelles sur [OpenModelDB](https://openmodeldb.info/) avant utilisation commerciale.
 
 ---
 
