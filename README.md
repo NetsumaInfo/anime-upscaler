@@ -2,7 +2,7 @@
 
 Application d'upscaling AI pour anime et dessins animés avec traitement batch et export vidéo professionnel.
 
-![Version](https://img.shields.io/badge/version-2.6.0-blue)
+![Version](https://img.shields.io/badge/version-2.7.1-blue)
 ![Python](https://img.shields.io/badge/python-3.10+-green)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
@@ -42,7 +42,7 @@ python app.py
 
 ## 🎯 Fonctionnalités Principales
 
-- **⚡ NOUVEAU v2.6: Traitement Parallèle Vidéo** - 2-3x plus rapide avec traitement simultané des frames
+- **⚡ Pipeline Concurrent (v2.7+)** - Traitement vidéo 2-8x plus rapide avec 4 étages parallèles
 - **🔢 Multi-Scale Support** - Upscaling ×1, ×2, ×4, ×8, ×16
 - **🌐 Interface Bilingue** - Français/Anglais avec changement instantané
 - **📦 Traitement Batch** - Images et vidéos multiples avec parallélisation
@@ -53,30 +53,29 @@ python app.py
 
 ---
 
-## 🆕 Nouveautés Version 2.6
+## 🆕 Nouveautés Version 2.7.1
 
-### ⚡ Traitement Parallèle Vidéo
+### ⚡ Pipeline Concurrent 4-Étages (v2.7)
 
-Le traitement vidéo est maintenant **2-3x plus rapide** grâce au traitement simultané des frames !
+Le traitement vidéo utilise maintenant un **pipeline concurrent révolutionnaire** avec 4 étages s'exécutant simultanément !
 
-**Comment ça fonctionne:**
-1. **Planification intelligente** - Analyse les frames et génère un plan JSON de traitement
-2. **Upscaling parallèle** - Traite 2-4 frames simultanément selon votre VRAM
-3. **Reconstruction** - Sauvegarde les frames dans le bon ordre
+**Architecture:**
+1. **Extraction** - FFmpeg extrait les frames en continu
+2. **Détection** - 8 workers CPU détectent les doublons en parallèle
+3. **Upscaling** - N workers GPU upscalent simultanément (selon VRAM)
+4. **Sauvegarde** - Thread I/O écrit les résultats de manière séquentielle
 
-**Performance attendue:**
-- 6GB VRAM: **1.5-1.8x plus rapide** (2 frames parallèles)
-- 8GB VRAM: **2.0-2.3x plus rapide** (3 frames parallèles)
-- 12GB+ VRAM: **2.5-3.0x plus rapide** (4 frames parallèles)
+**Performance (vs version séquentielle):**
+- Sans doublons: **33-40% plus rapide** (1000 frames: 180s → 110s)
+- Avec doublons (40% typique): **55-65% plus rapide** (180s → 65-80s)
+- Scènes statiques (70% doublons): **70-75% plus rapide** (180s → 45-55s)
 
-**Avec détection de duplications:**
-- Vidéos statiques (30-50% duplicatas): **3-5x plus rapide**
-- Anime avec dialogues: **2-3x plus rapide**
-- Vidéos d'action: **1.5-2.5x plus rapide**
+**Utilisation des ressources:**
+- CPU, GPU et I/O occupés **simultanément** (élimine les temps d'attente)
+- Activation automatique pour vidéos ≥100 frames
+- Fallback transparent vers mode séquentiel si <100 frames
 
 > 💡 **Activation:** Cochez "Enable parallel image processing" dans Advanced Settings (activé par défaut)
-
-📚 [Documentation complète](docs/PARALLEL_VIDEO_PROCESSING.md)
 
 ---
 
@@ -105,6 +104,11 @@ Cliquez sur **"🧪 Test First Image"** pour tester rapidement le premier fichie
 | OpenProteus Compact | Vidéos/usage général | Rapide | Bonne |
 
 > 💡 **Astuce:** Ani4K v2 Compact est le meilleur compromis pour la plupart des utilisations.
+
+**➕ Ajouter vos propres modèles:**
+1. Téléchargez depuis [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) ou [OpenModelDB](https://openmodeldb.info/)
+2. Placez les fichiers `.pth` ou `.safetensors` dans `models/`
+3. Redémarrez l'application → détection automatique ✨
 
 ### 4. Configurer les paramètres
 
@@ -157,23 +161,34 @@ Cliquez sur **"▶️ Run Batch"** pour démarrer.
 
 ## 📁 Organisation des Fichiers
 
-Vos fichiers traités se trouvent dans `output/YYYYMMDD_HHMMSS/`
+**Option 1: Dossiers dédiés** (activé par défaut - Recommandé)
+- ✅ "Dossier images/ dédié" + "Dossier videos/ dédié" cochés
 
-**Structure:**
+```
+output/
+├── images/                     (toutes les images)
+│   ├── photo1_upscaled.png
+│   └── photo2_upscaled.png
+└── videos/                     (toutes les vidéos)
+    └── video_upscaled.mp4
+```
+
+**Option 2: Organisation par session** (décochées)
+- ❌ Options "Dossier dédié" décochées
+
 ```
 output/20260122_143000/
-├── image_upscaled.png          (1 image seule)
+├── image_upscaled.png          (1 image)
 ├── images/                     (plusieurs images)
 │   ├── photo1_upscaled.png
 │   └── photo2_upscaled.png
-├── video_name/                 (1 vidéo seule)
-│   ├── input/                  (frames originales)
-│   ├── output/                 (frames upscalées)
-│   └── video_upscaled.mp4
-└── videos/                     (plusieurs vidéos)
-    └── video_name/
-        └── ...
+└── video_name/                 (vidéos avec frames)
+    ├── input/
+    ├── output/
+    └── video_upscaled.mp4
 ```
+
+> 💡 **Recommandation:** Utilisez les dossiers dédiés pour un accès direct et rapide aux résultats.
 
 ---
 
@@ -193,33 +208,34 @@ Utilisez des tiles plus petits si vous manquez de VRAM:
 - **512px** - GPU 8GB+ (recommandé)
 - **1024px** - GPU 12GB+
 
-### Auto-Cleanup Vidéo
+### Organisation & Nettoyage
 
+- **Dossier images/ dédié** - Toutes les images dans `output/images/` (activé par défaut)
+- **Dossier videos/ dédié** - Toutes les vidéos dans `output/videos/` (activé par défaut)
 - **Delete input frames** - Supprime frames originales après traitement
 - **Delete upscaled frames** - Supprime frames upscalées après encodage
-- 💡 Active les deux pour économiser l'espace disque
+- 💡 Dossiers dédiés recommandés pour accès rapide aux résultats
 
 ---
 
-## 🆕 Nouveautés v2.4.2
+## 📚 Historique des Versions
 
-### Optimisations de Performance
-- ⚡ **+8-12% de vitesse** sur images/vidéos
-- 🔄 **Fix FP16/FP32** - Le changement de précision fonctionne maintenant
-- 💾 **Cache optimisé** - Réutilisation intelligente des calculs
-- 🔥 **Inférence accélérée** - Utilisation de torch.inference_mode()
+- **v2.7.1** - Correctifs pause/stop, ordre des frames, optimisations pipeline
+- **v2.7.0** - Pipeline concurrent 4-étages pour traitement vidéo
+- **v2.6.2** - CUDA streams, fix synchronisation, workers VRAM agressifs
+- **v2.6.1** - Fusion détection doublons + traitement parallèle
+- **v2.5.0** - Architecture modulaire, traitement parallèle images
+- **v2.4.0** - Multi-scale support (×1, ×8, ×16)
 
-> 📚 Voir [docs/VERSIONS.md](docs/VERSIONS.md) pour l'historique complet
+> 📚 Voir [docs/CHANGELOG.md](docs/CHANGELOG.md) pour l'historique complet
 
 ---
 
-## 📚 Documentation Complète
+## 📚 Documentation
 
-- **[docs/INDEX](docs/DOCUMENTATION_INDEX.md)** - Index complet de la documentation
-- **[docs/VERSIONS.md](docs/VERSIONS.md)** - Historique des versions et changements
-- **[docs/ADVANCED.md](docs/ADVANCED.md)** - Guide des fonctionnalités avancées
-- **[docs/ADDING_MODELS.md](docs/ADDING_MODELS.md)** - Comment ajouter vos propres modèles
-- **[docs/OPTIMIZATIONS.md](docs/CHANGELOG_OPTIMIZATIONS.md)** - Détails techniques des optimisations
+- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** - Historique complet des versions
+- **[docs/ADVANCED.md](docs/ADVANCED.md)** - Fonctionnalités avancées
+- **[docs/ADDING_MODELS.md](docs/ADDING_MODELS.md)** - Ajouter vos propres modèles
 
 ---
 
@@ -238,9 +254,10 @@ Utilisez des tiles plus petits si vous manquez de VRAM:
 ### La vidéo n'a pas de son
 - Activez **"Keep audio from original video"** dans les paramètres vidéo
 
-### Le changement FP16/FP32 ne fonctionne pas
-- Version 2.4.2+ : Le problème est corrigé ✅
-- Version antérieure : Redémarrez l'application après changement
+### Traitement vidéo lent
+- Vérifiez que "Enable parallel image processing" est activé
+- Le pipeline concurrent s'active automatiquement pour vidéos ≥100 frames
+- Activez "Ignorer les frames dupliquées" pour gains supplémentaires
 
 ---
 
@@ -258,7 +275,7 @@ MIT License - Utilisation libre pour projets personnels et commerciaux.
 
 ## ⭐ Crédits
 
-- **Modèles AI** - [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) par Sirosky
+- **Modèles AI** - [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub) et [OpenModelDB](https://openmodeldb.info/)
 - **Architecture** - Spandrel (universal model loader)
 - **Interface** - Gradio
 

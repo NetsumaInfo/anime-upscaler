@@ -30,7 +30,7 @@ from .video_processing import (
 )
 
 
-def upscale_image_worker(img_path, model, settings, vram_manager, img_session, output_format, jpeg_quality):
+def upscale_image_worker(img_path, model, settings, vram_manager, img_session, output_format, jpeg_quality, custom_name=None):
     """
     Worker function for parallel image upscaling.
 
@@ -42,6 +42,7 @@ def upscale_image_worker(img_path, model, settings, vram_manager, img_session, o
         img_session: Output directory path
         output_format: Output image format (PNG/JPEG/WebP)
         jpeg_quality: Quality for JPEG/WebP
+        custom_name: Optional custom name for output file (without extension)
 
     Returns:
         Tuple of (output_path, result_array, orig_array, cuda_stream, error_message)
@@ -76,9 +77,9 @@ def upscale_image_worker(img_path, model, settings, vram_manager, img_session, o
             # ✅ CUDA stream is synchronized inside upscale_image() before .cpu() transfer
             # Results (PIL images) are ready to use - GPU work completed
 
-            # Save output
-            img_name = Path(img_path).stem
-            output_path = img_session / f"{img_name}_upscaled"
+            # Save output (use custom name if provided)
+            img_name = custom_name if custom_name else Path(img_path).stem
+            output_path = img_session / img_name
             save_image_with_format(result, output_path, output_format, jpeg_quality)
 
             # Get final path with extension
@@ -194,9 +195,9 @@ def _extract_gradio_value(value, default):
 
 
 def process_batch(files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
-                 auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames,
+                 auto_delete_input_frames, auto_delete_output_frames, auto_delete_extraction_folder, auto_delete_frame_mapping, organize_videos_folder, organize_images_folder, skip_duplicate_frames,
                  use_auto_settings, tile_size, tile_overlap, sharpening, contrast, saturation,
-                 video_naming_mode, video_suffix, video_custom_name, enable_parallel=True, parallel_workers=2, vram_manager=None, progress=None):
+                 video_naming_mode, video_suffix, video_custom_name, enable_parallel=True, parallel_workers=2, file_rename_textbox="", vram_manager=None, progress=None):
     """Process multiple files with video export support, auto-cleanup, and duplicate frame detection"""
 
     # CRITICAL: Extract values from Gradio components (handles dict vs direct value)
@@ -208,6 +209,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     contrast = _extract_gradio_value(contrast, 1.0)
     saturation = _extract_gradio_value(saturation, 1.0)
     video_target_resolution = _extract_gradio_value(video_resolution_dropdown, 0)
+
+    # Parse custom file names from textbox (one name per line)
+    custom_file_names = []
+    if file_rename_textbox and file_rename_textbox.strip():
+        custom_file_names = [line.strip() for line in file_rename_textbox.strip().split('\n') if line.strip()]
     
     # CRITICAL: Handle parallel_workers with extra validation
     # This parameter can sometimes come as a dict from Gradio
@@ -262,6 +268,14 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     # Separate images and videos
     images, videos = separate_files_by_type(files)
 
+    # Create mapping: file_path -> custom_name
+    file_custom_names = {}
+    if custom_file_names:
+        # Map custom names to files in order
+        for idx, file_path in enumerate(files):
+            if idx < len(custom_file_names):
+                file_custom_names[str(Path(file_path).absolute())] = custom_file_names[idx]
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     session = OUTPUT_DIR / ts
     session.mkdir(exist_ok=True)
@@ -276,12 +290,18 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     if images:
         status_messages.append(f"📸 Processing {len(images)} image(s)...")
 
-        # Smart folder organization: only create "images" subfolder if multiple images
-        if len(images) == 1:
-            img_session = session
-        else:
-            img_session = session / "images"
+        # Smart folder organization based on organize_images_folder setting
+        if organize_images_folder:
+            # Export to dedicated images/ folder (like videos/)
+            img_session = OUTPUT_DIR / "images"
             img_session.mkdir(exist_ok=True)
+        else:
+            # Original behavior: only create "images" subfolder if multiple images
+            if len(images) == 1:
+                img_session = session
+            else:
+                img_session = session / "images"
+                img_session.mkdir(exist_ok=True)
 
         # Prepare settings dict for worker
         settings = {
@@ -303,10 +323,13 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     if check_processing_state("stop"):
                         break
 
+                    # Get custom name if available
+                    custom_name = file_custom_names.get(str(Path(img_path).absolute()))
+
                     future = executor.submit(
                         upscale_image_worker,
                         img_path, model, settings, vram_manager,
-                        img_session, output_format, jpeg_quality
+                        img_session, output_format, jpeg_quality, custom_name
                     )
                     image_futures[future] = (idx, img_path)
 
@@ -407,7 +430,9 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                                                     target_resolution=0,
                                                     is_video_frame=False, **params)
 
-                        img_name = Path(img_path).stem
+                        # Use custom name if available
+                        custom_name = file_custom_names.get(str(Path(img_path).absolute()))
+                        img_name = custom_name if custom_name else Path(img_path).stem
                         output_path = img_session / f"{img_name}_upscaled"
 
                         # PHASE 2.3: Save asynchronously in background (if enabled)
@@ -485,8 +510,10 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                                                 target_resolution=0,
                                                 is_video_frame=False, **params)
 
-                    img_name = Path(img_path).stem
-                    output_path = img_session / f"{img_name}_upscaled"
+                    # Use custom name if available
+                    custom_name = file_custom_names.get(str(Path(img_path).absolute()))
+                    img_name = custom_name if custom_name else Path(img_path).stem
+                    output_path = img_session / img_name
                     save_image_with_format(result, output_path, output_format, jpeg_quality)
 
                     # Add to download files list
@@ -522,6 +549,10 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
             vid_name = Path(video_path).stem
 
+            # Get custom name if available (for folder naming)
+            custom_name = file_custom_names.get(str(Path(video_path).absolute()))
+            folder_name = custom_name if custom_name else vid_name
+
             # Organize videos based on user preference
             if organize_videos_folder:
                 # Put video in dedicated output/videos/ folder (outside session)
@@ -529,13 +560,13 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 videos_output_dir.mkdir(exist_ok=True)
 
                 # Temporary processing folder in session
-                vid_session = session / "temp_video_processing" / vid_name
+                vid_session = session / "temp_video_processing" / folder_name
             else:
                 # Smart folder organization: only create "videos" subfolder if multiple videos
                 if len(videos) == 1:
-                    vid_session = session / vid_name
+                    vid_session = session / folder_name
                 else:
-                    vid_session = session / "videos" / vid_name
+                    vid_session = session / "videos" / folder_name
 
             frames_in = vid_session / "input"
             frames_out = vid_session / "output"
@@ -584,18 +615,18 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
             if use_gpu_pipeline:
                 # ============================================================
-                # GPU-FIRST PIPELINE MODE (v2.8 - OPTIMIZED)
+                # NEW ASYNC PIPELINE + BATCHING (v3.0 - OPTIMIZED)
                 # ============================================================
-                from .gpu_pipeline import GPUFirstPipeline
+                from .pipeline import ConcurrentPipeline
                 import torch
 
-                # Prepare upscale parameters (matching upscale_image() signature)
+                # Prepare upscale parameters
                 upscale_params = {
                     "preserve_alpha": preserve_alpha,
                     "use_fp16": use_fp16,
                     "tile_size": params.get("tile_size", 512),
                     "tile_overlap": params.get("tile_overlap", 32),
-                    "target_scale": 2.0,  # Video always uses 2x
+                    "target_scale": 2.0,
                     "target_resolution": video_target_resolution,
                     "sharpening": params.get("sharpening", 0),
                     "contrast": params.get("contrast", 1.0),
@@ -603,13 +634,13 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     "is_video_frame": True
                 }
 
-                status_messages.append(f"🚀 {vid_name}: Using GPU-FIRST PIPELINE (extraction + detection + upscale on GPU)")
+                status_messages.append(f"🚀 {vid_name}: ASYNC PIPELINE + BATCHING MODE (3 parallel threads)")
 
-                # Run GPU-first pipeline
-                pipeline = GPUFirstPipeline(
+                # Run new concurrent pipeline with async batching
+                pipeline = ConcurrentPipeline(
                     video_path=video_path,
                     output_dir=str(frames_out),
-                    model=model,
+                    model_name=model,  # Now passes model NAME for upscale_batch
                     vram_manager=vram_manager,
                     upscale_params=upscale_params,
                     detect_duplicates=skip_duplicate_frames,
@@ -628,11 +659,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 status_messages.append(f"⏱️ {vid_name}: Pipeline completed in {elapsed:.2f}s ({pipeline_stats['fps']:.2f} fps)")
                 status_messages.append(f"📊 {vid_name}: Total: {pipeline_stats['total_frames']} | Unique: {pipeline_stats['unique_frames']} | Duplicates: {pipeline_stats['duplicate_frames']} ({pipeline_stats['duplicate_percentage']:.1f}%)")
 
-                # Create stats dict compatible with later code (line 990)
+                # Create stats dict compatible with later code
                 stats = {
                     "total_frames": pipeline_stats["total_frames"],
                     "unique_frames": pipeline_stats["unique_frames"],
-                    "duplicates": pipeline_stats["duplicate_frames"],  # Map key name
+                    "duplicates": pipeline_stats["duplicate_frames"],
                     "duplicate_percentage": pipeline_stats["duplicate_percentage"]
                 }
 
@@ -722,9 +753,9 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 status_messages.append(f"   - unique_frame_count={unique_frame_count} (need >1)")
 
                 if enable_parallel and vram_manager and unique_frame_count > 1:
-                    # BATCH MODE - Process multiple frames in single GPU calls
-                    batch_size = vram_manager.max_concurrent_jobs  # Use slider value as batch size
-                    status_messages.append(f"🚀 {vid_name}: BATCH MODE ACTIVATED - Processing {batch_size} frames per batch")
+                    # BATCH MODE with ASYNC PREFETCH - Load N+1 while GPU processes N
+                    batch_size = vram_manager.max_concurrent_jobs
+                    status_messages.append(f"🚀 {vid_name}: ASYNC BATCH MODE - {batch_size} frames/batch with prefetching")
                     
                     # Group frames into batches
                     batches = []
@@ -734,97 +765,109 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     
                     status_messages.append(f"📦 {vid_name}: Created {len(batches)} batches from {unique_frame_count} unique frames")
                     
-                    # Process each batch
-                    for batch_idx, batch_paths in enumerate(batches):
-                        if check_processing_state("stop"):
-                            break
-                        
-                        while check_processing_state("paused"):
-                            time.sleep(0.1)
-                            if check_processing_state("stop"):
-                                break
-                        
-                        # Load batch frames as PIL Images
-                        batch_frames = []
-                        batch_orig = []
-                        valid_paths = []
-                        
+                    # Function to load a batch of images
+                    def load_batch(batch_paths):
+                        """Load batch of images in background thread"""
+                        loaded_frames = []
+                        loaded_orig = []
+                        loaded_paths = []
                         for frame_path in batch_paths:
                             try:
                                 img = Image.open(frame_path)
-                                batch_frames.append(img.copy())
-                                batch_orig.append(img.copy())
-                                valid_paths.append(frame_path)
-                            except Exception as e:
-                                status_messages.append(f"❌ Error loading {Path(frame_path).name}: {e}")
-                        
-                        if not batch_frames:
-                            continue
-                        
-                        print(f"🔄 Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_frames)} frames)...")
-                        
-                        # Upscale entire batch in single GPU call
-                        try:
-                            batch_results = upscale_batch(
-                                batch_frames,
-                                model,
-                                video_settings['use_fp16'],
-                                video_settings['target_resolution']
-                            )
-                            
-                            # IMMEDIATE SAVE: Save each frame right after upscaling
-                            for i, (frame_path, result_img, orig_img) in enumerate(zip(valid_paths, batch_results, batch_orig)):
-                                # Find the output path for this frame from the mapping
-                                normalized_input = os.path.normpath(os.path.abspath(frame_path))
-                                
-                                # Find the frame index and output path from mapping
-                                for frame_idx, frame_info in frame_output_mapping.items():
-                                    frame_unique = os.path.normpath(os.path.abspath(frame_info["unique_frame"]))
-                                    if frame_unique == normalized_input and not frame_info["is_duplicate"]:
-                                        output_path = Path(frame_info["output_path"])
-                                        
-                                        # Save immediately
-                                        save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
-                                        
-                                        # Track for duplicate copying
-                                        upscaled_results[normalized_input] = output_path
-                                        
-                                        # Update UI (first 100 frames only)
-                                        if frames_completed < 100:
-                                            all_results.append(rgba_to_rgb_for_display(result_img))
-                                            orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
-                                            state_module.frame_pairs.append((
-                                                rgba_to_rgb_for_display(orig_resized),
-                                                rgba_to_rgb_for_display(result_img)
-                                            ))
-                                            orig_resized.close()
-                                        
-                                        frames_completed += 1
-                                        break
-                                
-                                # Close images to free memory
-                                result_img.close()
-                                orig_img.close()
-                            
-                            print(f"✅ Batch {batch_idx + 1}: {len(batch_results)} frames upscaled and SAVED")
-                            
-                        except Exception as e:
-                            status_messages.append(f"❌ Batch {batch_idx + 1} failed: {e}")
-                            print(f"❌ Batch error: {e}")
-                            import traceback
-                            traceback.print_exc()
-                        
-                        # Close source images to free memory
-                        for img in batch_frames:
-                            try:
+                                loaded_frames.append(img.copy())
+                                loaded_orig.append(img.copy())
+                                loaded_paths.append(frame_path)
                                 img.close()
-                            except:
-                                pass
+                            except Exception as e:
+                                print(f"⚠️ Error loading {Path(frame_path).name}: {e}")
+                        return loaded_frames, loaded_orig, loaded_paths
+                    
+                    # Async prefetch executor
+                    with ThreadPoolExecutor(max_workers=1) as prefetch_executor:
+                        # Start loading first batch
+                        next_batch_future = prefetch_executor.submit(load_batch, batches[0]) if batches else None
                         
-                        # Update progress
-                        if progress:
-                            progress(0.15 + (frames_completed / unique_frame_count) * 0.8,
-                                    desc=f"{vid_name} - Batch {batch_idx + 1}/{len(batches)} ({frames_completed}/{unique_frame_count} frames saved)")
+                        for batch_idx, batch_paths in enumerate(batches):
+                            if check_processing_state("stop"):
+                                break
+                            
+                            while check_processing_state("paused"):
+                                time.sleep(0.1)
+                                if check_processing_state("stop"):
+                                    break
+                            
+                            # Get preloaded batch (already loaded in background)
+                            batch_frames, batch_orig, valid_paths = next_batch_future.result()
+                            
+                            # Start prefetching NEXT batch while GPU works on current
+                            if batch_idx + 1 < len(batches):
+                                next_batch_future = prefetch_executor.submit(load_batch, batches[batch_idx + 1])
+                            
+                            if not batch_frames:
+                                continue
+                            
+                            print(f"🔄 Processing batch {batch_idx + 1}/{len(batches)} ({len(batch_frames)} frames)...")
+                            
+                            # GPU: Upscale entire batch in single call
+                            try:
+                                batch_results = upscale_batch(
+                                    batch_frames,
+                                    model,
+                                    video_settings['use_fp16'],
+                                    video_settings['target_resolution']
+                                )
+                                
+                                # IMMEDIATE SAVE: Save each frame right after upscaling
+                                for i, (frame_path, result_img, orig_img) in enumerate(zip(valid_paths, batch_results, batch_orig)):
+                                    normalized_input = os.path.normpath(os.path.abspath(frame_path))
+                                    
+                                    for frame_idx, frame_info in frame_output_mapping.items():
+                                        frame_unique = os.path.normpath(os.path.abspath(frame_info["unique_frame"]))
+                                        if frame_unique == normalized_input and not frame_info["is_duplicate"]:
+                                            output_path = Path(frame_info["output_path"])
+                                            
+                                            # Save immediately
+                                            save_frame_with_format(result_img, output_path.with_suffix(''), frame_format)
+                                            
+                                            # Track for duplicate copying
+                                            upscaled_results[normalized_input] = output_path
+                                            
+                                            # Update UI (first 100 frames only)
+                                            if frames_completed < 100:
+                                                all_results.append(rgba_to_rgb_for_display(result_img))
+                                                orig_resized = orig_img.resize(result_img.size, Image.Resampling.LANCZOS)
+                                                state_module.frame_pairs.append((
+                                                    rgba_to_rgb_for_display(orig_resized),
+                                                    rgba_to_rgb_for_display(result_img)
+                                                ))
+                                                orig_resized.close()
+                                            
+                                            frames_completed += 1
+                                            break
+                                    
+                                    # Close images to free memory
+                                    result_img.close()
+                                    orig_img.close()
+                                
+                                print(f"✅ Batch {batch_idx + 1}: {len(batch_results)} frames upscaled and SAVED")
+                                
+                            except Exception as e:
+                                status_messages.append(f"❌ Batch {batch_idx + 1} failed: {e}")
+                                print(f"❌ Batch error: {e}")
+                                import traceback
+                                traceback.print_exc()
+                            
+                            # Close source images to free memory
+                            for img in batch_frames:
+                                try:
+                                    img.close()
+                                except:
+                                    pass
+                            
+                            # Update progress
+                            if progress:
+                                progress(0.15 + (frames_completed / unique_frame_count) * 0.8,
+                                        desc=f"{vid_name} - Batch {batch_idx + 1}/{len(batches)} ({frames_completed}/{unique_frame_count} frames saved)")
                     
                     if skip_duplicate_frames and stats['duplicates'] > 0:
                         status_messages.append(f"⚡ {vid_name}: {frames_completed} unique frames upscaled (saved {stats['duplicates']} duplicate upscales!)")
@@ -975,16 +1018,45 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
 
                 saved_frames_count = unique_saved + duplicates_copied
 
-                # Confirm all frames saved
-                if saved_frames_count < total_frames:
-                    status_messages.append(f"⚠️ {vid_name}: Only saved {saved_frames_count}/{total_frames} frames (some missing)")
+                # ============================================================
+                # CRITICAL VALIDATION (Bug #8): Verify frame sequence integrity
+                # ============================================================
+                expected_frames = set(range(total_frames))
+                actual_frames = set()
+
+                # Scan output directory for saved frames
+                for frame_file in sorted(Path(frames_out).glob("frame_*.png")):
+                    try:
+                        # Extract frame number from filename (frame_XXXXX.png)
+                        frame_num = int(frame_file.stem.split('_')[1])
+                        actual_frames.add(frame_num)
+                    except (IndexError, ValueError):
+                        status_messages.append(f"⚠️ {vid_name}: Invalid frame filename: {frame_file.name}")
+
+                missing_frames = expected_frames - actual_frames
+                extra_frames = actual_frames - expected_frames
+
+                if missing_frames or extra_frames:
+                    status_messages.append(f"❌ {vid_name}: CRITICAL - Frame sequence corrupted!")
+                    if missing_frames:
+                        missing_list = sorted(missing_frames)[:10]
+                        status_messages.append(f"   Missing frames: {missing_list}" + (f"... ({len(missing_frames) - 10} more)" if len(missing_frames) > 10 else ""))
+                    if extra_frames:
+                        extra_list = sorted(extra_frames)[:10]
+                        status_messages.append(f"   Extra frames: {extra_list}" + (f"... ({len(extra_frames) - 10} more)" if len(extra_frames) > 10 else ""))
+                    status_messages.append(f"   Expected {len(expected_frames)} frames, found {len(actual_frames)} frames")
                 else:
-                    if skip_duplicate_frames and duplicates_copied > 0:
-                        status_messages.append(f"💾 {vid_name}: Saved {total_frames} frames ({frames_completed} upscaled + {duplicates_copied} copied from duplicates)")
-                        time_saved_pct = (duplicates_copied / total_frames * 100)
-                        status_messages.append(f"⚡ {vid_name}: OPTIMIZATION SUCCESS - Skipped {duplicates_copied} upscales ({time_saved_pct:.1f}% time saved)")
+                    # Confirm all frames saved in correct sequence
+                    if saved_frames_count < total_frames:
+                        status_messages.append(f"⚠️ {vid_name}: Only saved {saved_frames_count}/{total_frames} frames (some missing)")
                     else:
-                        status_messages.append(f"💾 {vid_name}: Successfully saved all {total_frames} frames")
+                        status_messages.append(f"✅ {vid_name}: Frame sequence validated - all {total_frames} frames in correct order")
+                        if skip_duplicate_frames and duplicates_copied > 0:
+                            status_messages.append(f"💾 {vid_name}: Saved {total_frames} frames ({frames_completed} upscaled + {duplicates_copied} copied from duplicates)")
+                            time_saved_pct = (duplicates_copied / total_frames * 100)
+                            status_messages.append(f"⚡ {vid_name}: OPTIMIZATION SUCCESS - Skipped {duplicates_copied} upscales ({time_saved_pct:.1f}% time saved)")
+                        else:
+                            status_messages.append(f"💾 {vid_name}: Successfully saved all {total_frames} frames")
 
                 # Cleanup upscaled results from memory
                 # Batch mode: values are Path objects (already closed during save)
@@ -1039,8 +1111,11 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
             elif video_naming_mode in ["Add suffix", t_en.get("naming_suffix"), t_fr.get("naming_suffix"), "Ajouter un suffixe"]:
                 output_video_name = f"{vid_name}{video_suffix}"
             else:  # Custom name
-                # Use custom name if provided, otherwise fallback to original name
-                output_video_name = video_custom_name.strip() if video_custom_name.strip() else vid_name
+                # Use file-specific custom name if available, otherwise global custom name
+                if custom_name:
+                    output_video_name = custom_name
+                else:
+                    output_video_name = video_custom_name.strip() if video_custom_name.strip() else vid_name
 
             # Determine final output path
             if organize_videos_folder:
@@ -1079,7 +1154,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
             else:
                 status_messages.append(f"⚠️ {vid_name}: {result_msg}")
 
-        # Auto-delete parallel_processing_plan.json if enabled
+        # Auto-delete JSON file if enabled
         if auto_delete_frame_mapping:
             plan_file = vid_session / "parallel_processing_plan.json"
             if plan_file.exists():
@@ -1089,21 +1164,23 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 except Exception as e:
                     print(f"⚠️ Failed to delete parallel_processing_plan.json: {e}")
 
-        # Clean up empty video session folder if all contents were deleted
-        if auto_delete_input_frames and auto_delete_output_frames and auto_delete_frame_mapping:
+        # Auto-delete extraction folder when video is exported
+        if auto_delete_extraction_folder and organize_videos_folder and export_video:
+            # Delete the complete extraction folder (vid_session)
             try:
-                # Check if vid_session is empty or only contains the video file
-                remaining_items = list(vid_session.iterdir())
-                # Filter out the video file itself
-                remaining_items = [item for item in remaining_items if not item.is_file() or not str(item).endswith(('.mp4', '.mov', '.avi', '.mkv', '.webm'))]
-
-                if len(remaining_items) == 0 or (len(remaining_items) == 0 and export_video):
-                    # Folder is empty (except possibly the video), we can delete it
-                    # But only if video was exported to videos/ folder (organize_videos_folder=True)
-                    if organize_videos_folder and export_video:
-                        # Video is in output/videos/, so we can safely delete vid_session
-                        shutil.rmtree(vid_session)
-                        status_messages.append(f"🗑️ {vid_name}: Cleaned up empty video processing folder")
+                if vid_session.exists():
+                    shutil.rmtree(vid_session)
+                    status_messages.append(f"🗑️ {vid_name}: Deleted extraction folder")
+            except Exception as e:
+                status_messages.append(f"⚠️ {vid_name}: Failed to delete extraction folder: {e}")
+            
+            # Also clean up temp_video_processing parent folder if empty
+            try:
+                temp_parent = vid_session.parent
+                if temp_parent.name == "temp_video_processing" and temp_parent.exists():
+                    remaining = list(temp_parent.iterdir())
+                    if len(remaining) == 0:
+                        temp_parent.rmdir()
             except Exception as e:
                 print(f"⚠️ Failed to clean up video session folder: {e}")
 
@@ -1143,6 +1220,22 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     update_processing_state("running", False)
     if progress:
         progress(1.0)
+
+    # Clean up empty session folder if all content was moved/deleted
+    # This removes the timestamp folder (e.g., 20260129_193320) if it's empty
+    try:
+        if session.exists():
+            # Check if session folder is empty or only contains empty subfolders
+            remaining_items = list(session.rglob('*'))
+            # Filter out directories, only count actual files
+            remaining_files = [item for item in remaining_items if item.is_file()]
+
+            if len(remaining_files) == 0:
+                # Session folder is empty or only has empty directories
+                shutil.rmtree(session)
+                status_messages.append(f"🗑️ Cleaned up empty session folder: {session.name}")
+    except Exception as e:
+        print(f"⚠️ Failed to clean up session folder: {e}")
 
     # Prepare outputs
     first_pair = state_module.frame_pairs[0] if state_module.frame_pairs else (None, None)

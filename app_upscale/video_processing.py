@@ -316,13 +316,27 @@ def plan_parallel_video_processing(
     frame_output_mapping = {}
     duplicate_mapping = {}  # {duplicate_path: unique_path} for quick lookup
 
-    for i, frame_path in enumerate(frames):
+    for frame_path in frames:
         norm_path = os.path.normpath(os.path.abspath(str(frame_path)))
         unique_frame = frame_to_unique[norm_path]
-        output_frame_path = frames_out_dir / f"frame_{i:05d}.png"
+
+        # CRITICAL FIX (Bug #6): Extract actual frame number from filename instead of using enumerate
+        # This ensures correct frame ordering even if frames list is incomplete or reordered
+        try:
+            frame_num = int(frame_path.stem.split('_')[1])  # Extract XXXXX from frame_XXXXX.png
+        except (IndexError, ValueError):
+            # Fallback: try to extract any number from filename
+            import re
+            match = re.search(r'(\d+)', frame_path.stem)
+            if match:
+                frame_num = int(match.group(1))
+            else:
+                raise ValueError(f"Cannot extract frame number from filename: {frame_path.name}")
+
+        output_frame_path = frames_out_dir / f"frame_{frame_num:05d}.png"
         is_duplicate = (unique_frame != norm_path)
 
-        frame_output_mapping[i] = {
+        frame_output_mapping[frame_num] = {
             "input_path": norm_path,
             "unique_frame": unique_frame,
             "output_path": str(output_frame_path),

@@ -24,41 +24,21 @@ def main():
         except:
             pass
 
-    print("🚀 Anime Upscaler v2.7.0 - Starting...")
-    print(f"🚀 Starting on {DEVICE}")
+    print("🚀 Anime Upscaler - Starting...")
 
-    # Display GPU/CUDA diagnostics
+    # Display GPU info (simplified)
     if DEVICE == "cuda":
-        print(f"   GPU: {torch.cuda.get_device_name(0)}")
+        gpu_name = torch.cuda.get_device_name(0)
         total_vram = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        print(f"   VRAM: {total_vram:.1f} GB")
-        print(f"   CUDA Version: {torch.version.cuda}")
-        print(f"   PyTorch Version: {torch.__version__}")
-
-        # Check if torch.compile is available
-        if hasattr(torch, 'compile'):
-            print(f"   ℹ️ torch.compile available (requires Triton on Linux)")
-            # Check if on Windows
-            if platform.system() == "Windows":
-                print(f"   ℹ️ Note: torch.compile may not work on Windows (Triton limitation)")
-        else:
-            print(f"   ⚠️ torch.compile not available - upgrade PyTorch 2.0+ for potential speedup")
+        print(f"   GPU: {gpu_name} ({total_vram:.1f} GB)")
     else:
-        print("   ⚠️ CUDA not available - running on CPU (very slow)")
-
-    print(f"📂 Output: {OUTPUT_DIR}")
-
-    # Show detected language
-    lang_name = "Français" if state_module.current_language == "fr" else "English"
-    print(f"🌐 Language: {lang_name} (detected from system locale)")
+        print("   ⚠️ Running on CPU (very slow)")
 
     # Scan models
-    print("\n🔍 Scanning models...")
+    print("🔍 Scanning models...")
     models_dict, display_mapping = scan_models()
-    print(f"   Found {len(models_dict)} model(s)")
 
-    # Initialize VRAM manager for parallel processing
-    print("\n⚡ Initializing parallel processing...")
+    # Initialize VRAM manager
     total_vram_gb = get_gpu_vram_gb()
     vram_manager = VRAMManager()
     recommended_jobs = vram_manager.auto_calculate_slots(total_vram_gb)
@@ -69,24 +49,19 @@ def main():
     else:
         vram_info_text = f"**Auto-detected:** {recommended_jobs} parallel jobs (VRAM: {total_vram_gb}GB)"
 
-    print(f"   Workers: {recommended_jobs} parallel jobs")
-    print(f"   VRAM: {total_vram_gb}GB")
-
-    # Pre-load default model with optimizations
+    # Pre-load default model
     try:
-        print("\n🔧 Pre-loading default model with optimizations...")
+        print("🔧 Loading default model...")
         model, actual_fp16, scale = load_model("Ani4K v2 Compact (Recommended)", use_fp16=True)
-        if DEVICE == "cuda":
-            print(f"   {get_gpu_memory_info()}")
     except Exception as e:
         print(f"⚠️ Loading error: {e}")
 
     # Create Gradio app
-    print("\n🎨 Creating UI...")
+    print("🎨 Creating interface...")
     app = create_app(vram_manager=vram_manager, vram_info_text=vram_info_text)
 
-    # Launch with automatic browser opening and port selection
-    print("\n🌐 Launching web interface...")
+    # Launch
+    print("🌐 Starting server...")
 
     # Try ports 7860-7869 until we find one available
     def find_free_port(start_port=7860, end_port=7869):
@@ -102,19 +77,23 @@ def main():
 
     # Find available port
     port = find_free_port()
-    if port is None:
-        print("⚠️ Warning: No free port found in range 7860-7869, using random port")
-        port = 0  # Let Gradio choose
-    else:
-        print(f"   Port: {port}")
 
     # Launch Gradio server with automatic browser opening
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        inbrowser=True,  # Gradio handles browser opening automatically
-        show_error=True
-    )
+    if port is None:
+        print("⚠️ No free port found in range 7860-7869, using automatic port selection...")
+        app.launch(
+            server_name="127.0.0.1",
+            inbrowser=True,
+            show_error=True
+        )
+    else:
+        print(f"✅ Using port {port}")
+        app.launch(
+            server_name="127.0.0.1",
+            server_port=port,
+            inbrowser=True,
+            show_error=True
+        )
 
 
 if __name__ == "__main__":

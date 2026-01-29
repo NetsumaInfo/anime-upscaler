@@ -93,6 +93,41 @@ def show_file_summary(files):
     return "\n".join(summary) if summary else "No valid files"
 
 
+def auto_fill_video_name(files):
+    """Automatically fill the custom video name field with the first video's name"""
+    if not files:
+        return ""
+
+    images, videos = separate_files_by_type(files)
+
+    # If there are videos, use the first video's name (without extension)
+    if videos:
+        first_video = Path(videos[0])
+        return first_video.stem  # Returns filename without extension
+
+    # If only images, use the first image's name
+    if images:
+        first_image = Path(images[0])
+        return first_image.stem
+
+    return ""
+
+
+def create_file_rename_list(files):
+    """Create a newline-separated list of file names for renaming"""
+    if not files:
+        return ""
+
+    # Create a list of file names (one per line)
+    file_names = []
+    for file_path in files:
+        new_name = Path(file_path).stem  # Name without extension
+        file_names.append(new_name)
+
+    # Join with newlines
+    return "\n".join(file_names)
+
+
 def test_image_upscale(uploaded_files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality,
                       precision_mode, preserve_alpha, use_auto_settings, tile_size, tile_overlap,
                       sharpening, contrast, saturation):
@@ -205,7 +240,6 @@ def create_app(vram_manager=None, vram_info_text=""):
         t = TRANSLATIONS[state_module.current_language]
 
         gr.Markdown(f"# {t['title']}")
-        gr.Markdown(f"*{t['subtitle']}*")
 
         with gr.Row():
             # Left Panel
@@ -321,7 +355,7 @@ def create_app(vram_manager=None, vram_info_text=""):
                     batch_size = gr.Slider(
                         minimum=1,
                         maximum=8,
-                        value=2,  # Default value
+                        value=3,  # Default value (matches DEFAULT_PARALLEL_WORKERS)
                         step=1,
                         label=t.get('batch_size', '📦 Taille des batches'),
                         info=t.get('batch_size_info', 'Plus de frames par batch = plus rapide.'),
@@ -385,11 +419,13 @@ def create_app(vram_manager=None, vram_info_text=""):
 
                     skip_duplicate_frames_check = gr.Checkbox(
                         label=t['skip_duplicates'],
-                        value=False,
+                        value=True,
                         info=t['skip_duplicates_info']
                     )
 
-                    video_naming_md = gr.Markdown(f"**{t['video_naming_title']}**")
+                # Naming section (separate accordion)
+                nommage_accordion = gr.Accordion("📄 Nommage", open=False)
+                with nommage_accordion:
                     video_naming_mode = gr.Radio(
                         choices=[t['naming_same'], t['naming_suffix'], t['naming_custom']],
                         value=t['naming_same'],
@@ -406,25 +442,37 @@ def create_app(vram_manager=None, vram_info_text=""):
                         )
 
                     with gr.Group(visible=False) as custom_name_group:
-                        video_custom_name = gr.Textbox(
-                            label=t['custom_name_label'],
+                        file_rename_textbox = gr.Textbox(
+                            label="",
                             value="",
-                            placeholder=t['custom_name_placeholder'],
-                            info=t['custom_name_info']
+                            placeholder="video1\nvideo2\nimage1",
+                            lines=5,
+                            max_lines=15,
+                            interactive=True,
+                            info=""
                         )
+
+                        # Hidden fields for backward compatibility
+                        video_custom_name = gr.Textbox(value="", visible=False)
+                        file_rename_table = gr.Dataframe(value=[], visible=False)
 
                 auto_cleanup_md = gr.Markdown(f"**{t['auto_cleanup_title']}**")
                 cleanup_accordion = gr.Accordion(t['auto_cleanup_accordion'], open=False)
                 with cleanup_accordion:
                     auto_delete_input_frames = gr.Checkbox(
                         label=t['delete_input_frames'],
-                        value=False,
+                        value=True,
                         info=t['delete_input_frames_info']
                     )
                     auto_delete_output_frames = gr.Checkbox(
                         label=t['delete_output_frames'],
-                        value=False,
+                        value=True,
                         info=t['delete_output_frames_info']
+                    )
+                    auto_delete_extraction_folder = gr.Checkbox(
+                        label=t['delete_extraction_folder'],
+                        value=True,
+                        info=t['delete_extraction_folder_info']
                     )
                     auto_delete_frame_mapping = gr.Checkbox(
                         label=t['delete_mapping'],
@@ -435,6 +483,11 @@ def create_app(vram_manager=None, vram_info_text=""):
                         label=t['organize_videos'],
                         value=True,
                         info=t['organize_videos_info']
+                    )
+                    organize_images_folder = gr.Checkbox(
+                        label=t['organize_images'],
+                        value=True,
+                        info=t['organize_images_info']
                     )
 
                 with gr.Row():
@@ -464,145 +517,16 @@ def create_app(vram_manager=None, vram_info_text=""):
                 download_info = gr.Textbox(label=t['download_info'], interactive=False, lines=3)
                 output_folder = gr.Textbox(label=t['output_folder'], interactive=False)
 
-        info_help_accordion = gr.Accordion(t['info_help_title'], open=False)
-        with info_help_accordion:
-            gr.Markdown(f"""
-### 🤖 AI Models (Upscale-Hub)
-
-**10 specialized models** from [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub):
-
-| Famille | Modèle | Vitesse | Qualité | Usage recommandé |
-|---------|--------|---------|---------|------------------|
-| **Ani4K v2** | Compact (Recommandé) | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Anime moderne (Bluray/WEB) - Équilibré |
-| **Ani4K v2** | UltraCompact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Anime moderne - Très rapide |
-| **AniToon** | Small/Regular/Large | ⭐⭐⭐-⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐-⭐⭐⭐⭐⭐ | Anime 90s/2000s basse qualité |
-| **AniSD** | AC/Regular | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Anime ancien (vieux anime) |
-| **OpenProteus** | Compact | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | Alternative Topaz Proteus |
-| **AniScale2** | Compact | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Usage général rapide |
-
-**🏆 Ani4K v2 Compact** est recommandé pour la plupart des usages: excellent équilibre vitesse/qualité pour anime moderne.
-
-**➕ Ajouter vos propres modèles personnalisés:**
-
-Vous pouvez facilement utiliser vos propres modèles d'upscaling !
-
-1. **Téléchargez** des modèles depuis :
-   - [Upscale-Hub](https://github.com/Sirosky/Upscale-Hub/releases) - Spécialisé anime/cartoon
-   - [OpenModelDB](https://openmodeldb.info/) - Tous types d'images
-2. **Placez** vos fichiers `.pth` ou `.safetensors` dans le dossier `models/`
-3. **Redémarrez** l'application
-4. **✨ Détection automatique** - Vos modèles apparaissent dans la liste !
-
-💡 **Formats supportés:** PyTorch (.pth), SafeTensors (.safetensors)
-
-### ⚙️ Paramètres d'Upscaling
-
-**Tile Settings:**
-- **Tile Size**: Taille des tuiles pour le traitement
-  - 256px: GPU avec 4GB VRAM
-  - 512px: GPU avec 8GB+ VRAM (recommandé)
-  - 1024px: GPU puissants (12GB+)
-  - Plus petit = moins de VRAM, plus lent
-- **Tile Overlap**: Chevauchement entre tuiles (16-64px)
-  - Plus grand = meilleur blending, plus lent
-  - Plus petit = plus rapide, possibles artifacts
-
-**Output Format:**
-- **PNG**: Sans perte, grande taille, supporte transparence
-- **JPEG**: Compression avec perte, petits fichiers, pas de transparence
-- **WebP**: Meilleure compression, moderne, supporte transparence
-
-**Post-Processing:**
-- **Sharpening**: Accentuation après upscaling (0-2.0)
-  - 0 = Aucun
-  - 0.5-1.0 = Léger à modéré
-  - 1.5-2.0 = Fort (attention aux artifacts)
-- **Contrast**: Ajustement du contraste (0.8-1.2)
-- **Saturation**: Ajustement de la saturation couleur (0.8-1.2)
-
-**Advanced:**
-- **FP16 (Half Precision)**: Utilise moins de VRAM, légèrement plus rapide
-  - ✅ Recommandé pour CUDA
-  - Précision légèrement réduite (imperceptible)
-
-### 🎬 Codecs Vidéo
-| Codec | Transparence | Qualité | Taille | Utilisation recommandée |
-|-------|--------------|---------|--------|------------------------|
-| **H.264 (AVC)** | ❌ Non | Bonne | Petite | Web, streaming, compatibilité maximale |
-| **H.265 (HEVC)** | ❌ Non | Excellente | Très petite | Vidéo 4K, appareils modernes |
-| **ProRes** | ✅ Oui (4444/XQ) | Excellente | Grande | Montage professionnel, VFX |
-| **DNxHD/DNxHR** | ✅ Oui (444) | Excellente | Grande | Montage professionnel, broadcast |
-
-**FPS (Frames Per Second)**:
-- 0 = Préserver le FPS original de la vidéo
-- 24/30/60 = Forcer un FPS spécifique
-
-**Preserve Transparency (Alpha Channel)**:
-- ✅ Activé: Le canal alpha est copié de l'image originale vers la sortie
-- Fonctionne avec tous les formats d'images
-- Pour les vidéos: nécessite ProRes 4444/XQ ou DNxHR 444
-
-### 🗑️ Auto-Cleanup (Économie d'Espace) **NOUVEAU v2.2**
-
-**Delete input frames after processing:**
-- Supprime les frames extraites au fur et à mesure du traitement
-- Économise jusqu'à 50% d'espace pendant le traitement
-- Recommandé si vous n'avez pas besoin des frames originales
-
-**Delete upscaled frames after encoding:**
-- Supprime les frames upscalées après encodage vidéo réussi
-- Économise jusqu'à 90% d'espace final (garde uniquement la vidéo)
-- Recommandé pour usage normal
-
-**Delete frame mapping file after processing:**
-- Supprime le fichier `frame_mapping.json` (données de détection des duplicatas)
-- Activé par défaut car ce fichier est uniquement utile pour le débogage
-- Économise un peu d'espace disque
-
-**Export videos to dedicated videos/ folder:**
-- ✅ Activé (défaut): Vidéos exportées dans `output/videos/nom_video.mp4`
-- ❌ Désactivé: Vidéos dans `output/session/nom_video/...` (avec frames)
-
-**💡 Recommandations:**
-- Usage normal: Activez les 2 options de suppression → garde uniquement vidéos finales
-- Archivage: Désactivez tout → conserve toutes les frames
-- Économie progressive: Activez uniquement "Delete input frames"
-
-### 📁 Organisation des Fichiers
-
-**Images:**
-- 1 seule: `output/session/nom_upscaled.ext`
-- Plusieurs: `output/session/images/nom_upscaled.ext`
-
-**Vidéos (avec "Export to dedicated videos/ folder" activé - défaut):**
-- Vidéo finale: `output/videos/nom_video.mp4` (directement accessible)
-- Frames temporaires: `output/session/temp_video_processing/nom_video/...` (supprimées automatiquement si auto-cleanup activé)
-
-**Vidéos (avec "Export to dedicated videos/ folder" désactivé):**
-- 1 seule: `output/session/nom_video/nom_video_upscaled.mp4`
-- Plusieurs: `output/session/videos/nom_video/nom_video_upscaled.mp4`
-
-**Nommage des vidéos exportées:**
-- **Same as input**: `video.mp4` → `video.mp4` (remplace l'extension)
-- **Add suffix**: `video.mp4` → `video_upscaled.mp4` (suffixe personnalisable)
-- **Custom name**: Nom complètement personnalisé (utile pour batch de vidéos)
-
-### 💡 Conseils
-- **🧪 Test**: Testez avec le premier fichier uploadé (image ou vidéo) avant batch complet
-- **Ani4K v2 Compact** recommandé pour anime moderne (meilleur équilibre vitesse/qualité)
-- Les modèles d'upscaling traitent uniquement RGB, le canal alpha est copié séparément
-- Utilisez le sharpening avec modération pour éviter les artifacts
-- Activez Auto-Cleanup pour économiser de l'espace disque (surtout pour vidéos)
-- Format JPEG/WebP recommandé pour réduire la taille (qualité 90-95)
-- Pour les vidéos sans transparence, H.264 ou H.265 offrent la meilleure compression
-
-### 🖥️ Système
-**GPU:** {'✅ CUDA (' + torch.cuda.get_device_name(0) + ')' if DEVICE == 'cuda' else '❌ CPU (très lent)'}
-**Modèles détectés:** {len(MODELS)}
-""")
+        # Info section removed for minimal UI - see documentation for details
 
         # Event handlers
         file_input.change(show_file_summary, [file_input], [file_summary])
+
+        # Auto-fill video custom name when files are uploaded
+        file_input.change(auto_fill_video_name, [file_input], [video_custom_name])
+
+        # Fill rename textbox with all uploaded files (one per line)
+        file_input.change(create_file_rename_list, [file_input], [file_rename_textbox])
 
         codec_select.change(
             update_codec_profiles,
@@ -655,9 +579,9 @@ Vous pouvez facilement utiliser vos propres modèles d'upscaling !
             [file_input, model_select, image_scale_radio, video_resolution_dropdown, output_format_select, jpeg_quality_slider,
              precision_radio,
              codec_select, profile_select, fps_slider, preserve_alpha_check, export_video_check, keep_audio_check, frame_format_select,
-             auto_delete_input_frames, auto_delete_output_frames, auto_delete_frame_mapping, organize_videos_folder, skip_duplicate_frames_check,
+             auto_delete_input_frames, auto_delete_output_frames, auto_delete_extraction_folder, auto_delete_frame_mapping, organize_videos_folder, organize_images_folder, skip_duplicate_frames_check,
              use_auto_settings, tile_size_slider, tile_overlap_slider, sharpening_slider, contrast_slider, saturation_slider,
-             video_naming_mode, video_suffix, video_custom_name, enable_parallel, batch_size],
+             video_naming_mode, video_suffix, video_custom_name, enable_parallel, batch_size, file_rename_textbox],
             [comparison_slider, gallery, status, output_folder, frame_slider, frame_label, download_info]
         )
 
