@@ -271,7 +271,7 @@ Contributions bienvenues! Ouvrez une issue ou pull request sur GitHub.
 
 **Code source:** MIT License - Utilisation libre pour projets personnels et commerciaux.
 
-**Modèles AI:** Les modèles téléchargés restent sous les droits de leurs propriétaires respectifs. Consultez les licences individuelles sur [OpenModelDB](https://openmodeldb.info/) avant utilisation commerciale.
+**Modèles AI:** Les modèles téléchargés restent sous les droits de leurs propriétaires respectifs. Consultez les licences individuelles sur [OpenModelDB](https://openmodeldb.info/) avant utilisation.
 
 ---
 
