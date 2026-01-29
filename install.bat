@@ -12,83 +12,85 @@ echo           Optimisé pour NVIDIA CUDA
 echo ╚══════════════════════════════════════════════════════════════════════╝
 echo.
 
-:: Check Python
-echo 🔍 Vérification de Python...
+:: ============================================================================
+:: STEP 1: Find compatible Python (3.10, 3.11, or 3.12)
+:: ============================================================================
+echo 🔍 Recherche d'une version Python compatible (3.10-3.12)...
+
+set PYTHON_CMD=
+
+:: Try py launcher with Python 3.12 first (preferred)
+py -3.12 --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=py -3.12
+    for /f "tokens=*" %%i in ('py -3.12 --version') do echo ✅ %%i détecté via py -3.12
+    goto :python_found
+)
+
+:: Try py launcher with Python 3.11
+py -3.11 --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=py -3.11
+    for /f "tokens=*" %%i in ('py -3.11 --version') do echo ✅ %%i détecté via py -3.11
+    goto :python_found
+)
+
+:: Try py launcher with Python 3.10
+py -3.10 --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=py -3.10
+    for /f "tokens=*" %%i in ('py -3.10 --version') do echo ✅ %%i détecté via py -3.10
+    goto :python_found
+)
+
+:: Try default python command and check version
 python --version >nul 2>&1
+if %errorlevel% equ 0 (
+    for /f "tokens=2 delims= " %%v in ('python --version') do set PY_VER=%%v
+    for /f "tokens=1,2 delims=." %%a in ("%PY_VER%") do (
+        set PY_MAJOR=%%a
+        set PY_MINOR=%%b
+    )
+    :: Check if default python is compatible (3.10-3.12)
+    if %PY_MAJOR% EQU 3 if %PY_MINOR% GEQ 10 if %PY_MINOR% LEQ 12 (
+        set PYTHON_CMD=python
+        for /f "tokens=*" %%i in ('python --version') do echo ✅ %%i détecté
+        goto :python_found
+    )
+    echo ⚠️ Python %PY_VER% détecté mais non compatible avec PyTorch
+)
+
+:: No compatible Python found - try to install
+echo ❌ Aucune version Python compatible trouvée (3.10-3.12 requis)
+echo.
+echo 🔧 Tentative d'installation automatique de Python 3.12...
+winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
 if %errorlevel% neq 0 (
-    echo ❌ Python non trouvé!
     echo.
-    echo 🔧 Tentative d'installation automatique de Python 3.12...
-    winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
-    if %errorlevel% neq 0 (
-        echo.
-        echo ❌ Installation automatique échouée!
-        echo.
-        echo Installez Python 3.10, 3.11 ou 3.12 depuis https://www.python.org/downloads/
-        echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
-        echo.
-        pause
-        exit /b 1
-    )
+    echo ❌ Installation automatique échouée!
     echo.
-    echo ✅ Python 3.12 installé avec succès!
+    echo Téléchargez Python 3.12 manuellement:
+    echo https://www.python.org/downloads/release/python-3120/
     echo.
-    echo ⚠️ IMPORTANT: Fermez cette fenêtre et relancez install.bat
-    echo    pour utiliser Python.
+    echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
     echo.
     pause
-    exit /b 0
+    exit /b 1
 )
+echo.
+echo ✅ Python 3.12 installé avec succès!
+echo.
+echo ⚠️ IMPORTANT: Fermez cette fenêtre et relancez install.bat
+echo.
+pause
+exit /b 0
 
-:: Display Python version and check compatibility
-for /f "tokens=*" %%i in ('python --version') do set PYTHON_VERSION=%%i
-echo ✅ %PYTHON_VERSION% détecté
+:python_found
+echo    Commande Python: %PYTHON_CMD%
 
-:: Check Python version compatibility (PyTorch requires 3.8-3.12)
-for /f "tokens=2 delims= " %%v in ('python --version') do set PY_VER=%%v
-for /f "tokens=1,2 delims=." %%a in ("%PY_VER%") do (
-    set PY_MAJOR=%%a
-    set PY_MINOR=%%b
-)
-
-:: Python 3.13+ is NOT supported by PyTorch yet
-if %PY_MAJOR% GEQ 3 if %PY_MINOR% GEQ 13 (
-    echo.
-    echo ⚠️ ════════════════════════════════════════════════════════════════════
-    echo ⚠️  ATTENTION: Python %PY_VER% n'est PAS compatible avec PyTorch!
-    echo ⚠️  PyTorch supporte actuellement Python 3.8 à 3.12 uniquement.
-    echo ⚠️ ════════════════════════════════════════════════════════════════════
-    echo.
-    echo 🔧 Tentative d'installation automatique de Python 3.12...
-    winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
-    if %errorlevel% neq 0 (
-        echo.
-        echo ❌ Installation automatique échouée!
-        echo.
-        echo Téléchargez Python 3.12 manuellement:
-        echo https://www.python.org/downloads/release/python-3120/
-        echo.
-        echo ⚠️ IMPORTANT: Cochez "Add Python to PATH" lors de l'installation!
-        echo.
-        pause
-        exit /b 1
-    )
-    echo.
-    echo ✅ Python 3.12 installé avec succès!
-    echo.
-    echo ⚠️ IMPORTANT: Fermez cette fenêtre et relancez install.bat
-    echo    pour utiliser la nouvelle version de Python.
-    echo.
-    pause
-    exit /b 0
-)
-
-:: Python 3.8-3.9 works but 3.10+ recommended
-if %PY_MAJOR% EQU 3 if %PY_MINOR% LSS 10 (
-    echo ⚠️ Python %PY_VER% fonctionne mais Python 3.10+ est recommandé
-)
-
-:: Check FFmpeg
+:: ============================================================================
+:: STEP 2: Check FFmpeg
+:: ============================================================================
 echo.
 echo 🔍 Vérification de FFmpeg...
 ffmpeg -version >nul 2>&1
@@ -107,6 +109,7 @@ if %errorlevel% neq 0 (
         pause
         exit /b 1
     )
+    echo ✅ FFmpeg installé
 ) else (
     echo ✅ FFmpeg détecté
 )
@@ -121,22 +124,27 @@ if %errorlevel% neq 0 (
     echo ✅ FFprobe détecté
 )
 
-:: Create virtual environment
+:: ============================================================================
+:: STEP 3: Create virtual environment
+:: ============================================================================
 echo.
 echo 📦 Création de l'environnement virtuel...
-if not exist "venv" (
-    python -m venv venv
-    if %errorlevel% neq 0 (
-        echo ❌ Erreur lors de la création du venv!
-        pause
-        exit /b 1
-    )
-    echo ✅ Environnement virtuel créé
-) else (
-    echo ℹ️ Environnement virtuel existant détecté
+if exist "venv" (
+    echo ℹ️ Environnement virtuel existant détecté - suppression pour réinstallation propre...
+    rmdir /s /q venv
 )
 
-:: Activate venv
+%PYTHON_CMD% -m venv venv
+if %errorlevel% neq 0 (
+    echo ❌ Erreur lors de la création du venv!
+    pause
+    exit /b 1
+)
+echo ✅ Environnement virtuel créé avec %PYTHON_CMD%
+
+:: ============================================================================
+:: STEP 4: Activate venv
+:: ============================================================================
 echo.
 echo 🔧 Activation de l'environnement virtuel...
 if not exist "venv\Scripts\activate.bat" (
@@ -147,7 +155,9 @@ if not exist "venv\Scripts\activate.bat" (
 call venv\Scripts\activate.bat
 echo ✅ Environnement virtuel activé
 
-:: Upgrade pip
+:: ============================================================================
+:: STEP 5: Upgrade pip
+:: ============================================================================
 echo.
 echo ⬆️ Mise à jour de pip, setuptools et wheel...
 python -m pip install --upgrade pip setuptools wheel --quiet
@@ -158,48 +168,36 @@ if %errorlevel% neq 0 (
 )
 echo ✅ Outils mis à jour
 
-:: Install PyTorch with CUDA
+:: ============================================================================
+:: STEP 6: Install PyTorch with CUDA
+:: ============================================================================
 echo.
 echo 🔥 Installation de PyTorch avec CUDA 12.1...
-echo    (Cela peut prendre quelques minutes...)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --quiet
+echo    (Cela peut prendre plusieurs minutes...)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 if %errorlevel% neq 0 (
     echo ❌ Erreur lors de l'installation de PyTorch!
-    echo    Tentative avec options de secours...
-    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-    if %errorlevel% neq 0 (
-        echo ❌ Échec définitif de l'installation de PyTorch!
-        pause
-        exit /b 1
-    )
+    pause
+    exit /b 1
 )
 echo ✅ PyTorch installé
 
-:: Install other dependencies
+:: ============================================================================
+:: STEP 7: Install other dependencies
+:: ============================================================================
 echo.
-echo 📚 Installation des dépendances principales...
-echo    (Cela peut prendre quelques minutes...)
-pip install -r requirements.txt --quiet
+echo 📚 Installation des dépendances...
+pip install -r requirements.txt
 if %errorlevel% neq 0 (
-    echo ⚠️ Installation silencieuse échouée, nouvelle tentative avec logs...
-    pip install -r requirements.txt
-    if %errorlevel% neq 0 (
-        echo ❌ Erreur lors de l'installation des dépendances!
-        pause
-        exit /b 1
-    )
+    echo ❌ Erreur lors de l'installation des dépendances!
+    pause
+    exit /b 1
 )
-echo ✅ Dépendances principales installées
+echo ✅ Dépendances installées
 
-:: Install spandrel extras (for model compatibility)
-echo.
-echo 🔧 Installation de spandrel avec extras (compatibilité modèles)...
-pip install "spandrel[opencv,pillow]" --quiet 2>nul
-if %errorlevel% neq 0 (
-    echo ℹ️ Extras non disponibles (non critique)
-)
-
-:: Verify critical packages
+:: ============================================================================
+:: STEP 8: Verify critical packages
+:: ============================================================================
 echo.
 echo 🔍 Vérification des packages critiques...
 python -c "import torch; print(f'   ✅ torch {torch.__version__}')" 2>nul || echo    ❌ torch manquant!
@@ -209,175 +207,85 @@ python -c "import spandrel; print(f'   ✅ spandrel {spandrel.__version__}')" 2>
 python -c "import PIL; print(f'   ✅ pillow {PIL.__version__}')" 2>nul || echo    ❌ pillow manquant!
 python -c "import numpy; print(f'   ✅ numpy {numpy.__version__}')" 2>nul || echo    ❌ numpy manquant!
 python -c "import cv2; print(f'   ✅ opencv {cv2.__version__}')" 2>nul || echo    ❌ opencv manquant!
-python -c "import tqdm; print(f'   ✅ tqdm {tqdm.__version__}')" 2>nul || echo    ❌ tqdm manquant!
-python -c "import safetensors; print(f'   ✅ safetensors (installed)')" 2>nul || echo    ❌ safetensors manquant!
-python -c "import einops; print(f'   ✅ einops (installed)')" 2>nul || echo    ❌ einops manquant!
-python -c "import requests; print(f'   ✅ requests {requests.__version__}')" 2>nul || echo    ❌ requests manquant!
-python -c "import gradio_imageslider; print(f'   ✅ gradio_imageslider (installed)')" 2>nul || echo    ❌ gradio_imageslider manquant!
 
-:: Create directories
+:: ============================================================================
+:: STEP 9: Create directories
+:: ============================================================================
 echo.
 echo 📁 Création des dossiers...
-if not exist "models" (
-    mkdir models
-    echo ✅ Dossier "models" créé
-) else (
-    echo ℹ️ Dossier "models" existant
-)
+if not exist "models" mkdir models && echo ✅ Dossier "models" créé
+if not exist "output" mkdir output && echo ✅ Dossier "output" créé
 
-if not exist "output" (
-    mkdir output
-    echo ✅ Dossier "output" créé
-) else (
-    echo ℹ️ Dossier "output" existant
-)
-
-:: Download models from OpenModelDB / Upscale-Hub
+:: ============================================================================
+:: STEP 10: Download models
+:: ============================================================================
 echo.
 echo 📥 Téléchargement des modèles AI...
-echo    (Les modèles peuvent aussi être ajoutés manuellement dans le dossier "models")
 echo.
 
-:: Model 1: AniToon Small (Fast, for old/low-quality anime)
-if not exist "models\2x_AniToon_RPLKSRS_242500.pth" (
-    echo [1/9] Téléchargement de AniToon Small... (~9 MB)
-    curl -L --progress-bar -o "models\2x_AniToon_RPLKSRS_242500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRS_242500.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 1/9 téléchargé
-    )
-) else (
-    echo ✅ [1/9] AniToon Small déjà présent
-)
-
-:: Model 2: AniToon (Balanced, for old/low-quality anime)
-if not exist "models\2x_AniToon_RPLKSR_197500.pth" (
-    echo [2/9] Téléchargement de AniToon... (~30 MB)
-    curl -L --progress-bar -o "models\2x_AniToon_RPLKSR_197500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSR_197500.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 2/9 téléchargé
-    )
-) else (
-    echo ✅ [2/9] AniToon déjà présent
-)
-
-:: Model 3: AniToon Large (Best quality, for old/low-quality anime)
-if not exist "models\2x_AniToon_RPLKSRL_280K.pth" (
-    echo [3/9] Téléchargement de AniToon Large... (~66 MB)
-    curl -L --progress-bar -o "models\2x_AniToon_RPLKSRL_280K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRL_280K.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 3/9 téléchargé
-    )
-) else (
-    echo ✅ [3/9] AniToon Large déjà présent
-)
-
-:: Model 4: Ani4K v2 UltraCompact (Very fast, for modern anime)
-if not exist "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" (
-    echo [4/9] Téléchargement de Ani4K v2 UltraCompact... (~20 MB)
-    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_UltraCompact_105K.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 4/9 téléchargé
-    )
-) else (
-    echo ✅ [4/9] Ani4K v2 UltraCompact déjà présent
-)
-
-:: Model 5: Ani4K v2 Compact (RECOMMENDED - Balanced speed/quality)
+:: Model 1: Ani4K v2 Compact (RECOMMENDED)
 if not exist "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" (
-    echo [5/9] Téléchargement de Ani4K v2 Compact RECOMMANDE... (~30 MB)
-    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 5/9 téléchargé - RECOMMANDE
-    )
+    echo [1/5] Téléchargement de Ani4K v2 Compact RECOMMANDE... (~30 MB)
+    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth" 2>nul
+    if exist "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" (echo ✅ Modèle 1/5 téléchargé) else (echo ⚠️ Échec - sera téléchargé au premier lancement)
 ) else (
-    echo ✅ [5/9] Ani4K v2 Compact déjà présent - RECOMMANDE
+    echo ✅ [1/5] Ani4K v2 Compact déjà présent
 )
 
-:: Model 6: AniSD AC (For SD anime - clean sources)
-if not exist "models\2x_AniSD_AC_RealPLKSR_127500.pth" (
-    echo [6/9] Téléchargement de AniSD AC... (~30 MB)
-    curl -L --progress-bar -o "models\2x_AniSD_AC_RealPLKSR_127500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_AC_RealPLKSR_127500.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 6/9 téléchargé
-    )
+:: Model 2: AniToon
+if not exist "models\2x_AniToon_RPLKSR_197500.pth" (
+    echo [2/5] Téléchargement de AniToon... (~30 MB)
+    curl -L --progress-bar -o "models\2x_AniToon_RPLKSR_197500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSR_197500.pth" 2>nul
+    if exist "models\2x_AniToon_RPLKSR_197500.pth" (echo ✅ Modèle 2/5 téléchargé) else (echo ⚠️ Échec - sera téléchargé au premier lancement)
 ) else (
-    echo ✅ [6/9] AniSD AC déjà présent
+    echo ✅ [2/5] AniToon déjà présent
 )
 
-:: Model 7: AniSD (For SD anime - general)
-if not exist "models\2x_AniSD_RealPLKSR_140K.pth" (
-    echo [7/9] Téléchargement de AniSD... (~30 MB)
-    curl -L --progress-bar -o "models\2x_AniSD_RealPLKSR_140K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_RealPLKSR_140K.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 7/9 téléchargé
-    )
-) else (
-    echo ✅ [7/9] AniSD déjà présent
-)
-
-:: Model 8: OpenProteus (Free alternative to Topaz Proteus)
+:: Model 3: OpenProteus
 if not exist "models\2x_OpenProteus_Compact_i2_70K.pth" (
-    echo [8/9] Téléchargement de OpenProteus... (~30 MB)
-    curl -L --progress-bar -o "models\2x_OpenProteus_Compact_i2_70K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/OpenProteus/2x_OpenProteus_Compact_i2_70K.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 8/9 téléchargé
-    )
+    echo [3/5] Téléchargement de OpenProteus... (~30 MB)
+    curl -L --progress-bar -o "models\2x_OpenProteus_Compact_i2_70K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/OpenProteus/2x_OpenProteus_Compact_i2_70K.pth" 2>nul
+    if exist "models\2x_OpenProteus_Compact_i2_70K.pth" (echo ✅ Modèle 3/5 téléchargé) else (echo ⚠️ Échec - sera téléchargé au premier lancement)
 ) else (
-    echo ✅ [8/9] OpenProteus déjà présent
+    echo ✅ [3/5] OpenProteus déjà présent
 )
 
-:: Model 9: AniScale2 Compact (Fast general purpose)
-if not exist "models\2x_AniScale2S_Compact_i8_60K.pth" (
-    echo [9/9] Téléchargement de AniScale2 Compact... (~25 MB)
-    curl -L --progress-bar -o "models\2x_AniScale2S_Compact_i8_60K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniScale2/2x_AniScale2S_Compact_i8_60K.pth"
-    if %errorlevel% neq 0 (
-        echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
-    ) else (
-        echo ✅ Modèle 9/9 téléchargé
-    )
+:: Model 4: AniSD
+if not exist "models\2x_AniSD_RealPLKSR_140K.pth" (
+    echo [4/5] Téléchargement de AniSD... (~30 MB)
+    curl -L --progress-bar -o "models\2x_AniSD_RealPLKSR_140K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_RealPLKSR_140K.pth" 2>nul
+    if exist "models\2x_AniSD_RealPLKSR_140K.pth" (echo ✅ Modèle 4/5 téléchargé) else (echo ⚠️ Échec - sera téléchargé au premier lancement)
 ) else (
-    echo ✅ [9/9] AniScale2 Compact déjà présent
+    echo ✅ [4/5] AniSD déjà présent
 )
 
-echo.
-echo ℹ️ Total: 9 modèles configurés
-echo    Modèle recommandé: Ani4K v2 Compact (équilibre vitesse/qualité)
+:: Model 5: Ani4K v2 UltraCompact
+if not exist "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" (
+    echo [5/5] Téléchargement de Ani4K v2 UltraCompact... (~20 MB)
+    curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" 2>nul
+    if exist "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" (echo ✅ Modèle 5/5 téléchargé) else (echo ⚠️ Échec - sera téléchargé au premier lancement)
+) else (
+    echo ✅ [5/5] Ani4K v2 UltraCompact déjà présent
+)
 
-:: Test CUDA availability
+:: ============================================================================
+:: STEP 11: Test CUDA
+:: ============================================================================
 echo.
 echo 🔍 Vérification de CUDA...
-python -c "import torch; cuda_ok = torch.cuda.is_available(); print('✅ CUDA disponible:', cuda_ok); print('   GPU:', torch.cuda.get_device_name(0) if cuda_ok else 'N/A'); print('   VRAM:', f'{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB' if cuda_ok else 'N/A')" 2>nul
+python -c "import torch; cuda_ok = torch.cuda.is_available(); print('✅ CUDA disponible:', cuda_ok); print('   GPU:', torch.cuda.get_device_name(0) if cuda_ok else 'N/A')" 2>nul
 if %errorlevel% neq 0 (
-    echo ⚠️ Impossible de vérifier CUDA - vérifiez que PyTorch est installé
+    echo ⚠️ Impossible de vérifier CUDA
 )
 
+:: ============================================================================
+:: DONE
+:: ============================================================================
 echo.
 echo ╔══════════════════════════════════════════════════════════════════════╗
 echo ║                    ✅ Installation terminée!                          ║
 echo ╚══════════════════════════════════════════════════════════════════════╝
 echo.
-echo 📝 Instructions:
-echo    1. Lancez "run.bat" pour démarrer l'application
-echo    2. L'interface web s'ouvrira automatiquement dans votre navigateur
-echo    3. Ajoutez vos propres modèles dans le dossier "models" si nécessaire
-echo       (formats supportés: .pth, .safetensors)
-echo.
-echo 🌐 Les modèles manquants seront téléchargés automatiquement au premier usage
+echo 📝 Lancez "run.bat" pour démarrer l'application
 echo.
 pause
