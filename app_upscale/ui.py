@@ -235,7 +235,9 @@ def create_app(vram_manager=None, vram_info_text=""):
     }
     """
 
-    with gr.Blocks(title="Anime Upscaler - Batch & Video Export", css=custom_css) as app:
+    with gr.Blocks(title="Anime Upscaler - Batch & Video Export") as app:
+        # Store CSS for launch() - Gradio 6.0 compatibility
+        app.custom_css = custom_css
         # Use translations based on current language
         t = TRANSLATIONS[state_module.current_language]
 

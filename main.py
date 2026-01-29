@@ -84,7 +84,8 @@ def main():
         app.launch(
             server_name="127.0.0.1",
             inbrowser=True,
-            show_error=True
+            show_error=True,
+            css=getattr(app, 'custom_css', None)
         )
     else:
         print(f"✅ Using port {port}")
@@ -92,7 +93,8 @@ def main():
             server_name="127.0.0.1",
             server_port=port,
             inbrowser=True,
-            show_error=True
+            show_error=True,
+            css=getattr(app, 'custom_css', None)
         )
 
 
