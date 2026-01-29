@@ -106,22 +106,55 @@ echo    (Cela peut prendre quelques minutes...)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --quiet
 if %errorlevel% neq 0 (
     echo ❌ Erreur lors de l'installation de PyTorch!
-    pause
-    exit /b 1
+    echo    Tentative avec options de secours...
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+    if %errorlevel% neq 0 (
+        echo ❌ Échec définitif de l'installation de PyTorch!
+        pause
+        exit /b 1
+    )
 )
 echo ✅ PyTorch installé
 
 :: Install other dependencies
 echo.
-echo 📚 Installation des dépendances...
+echo 📚 Installation des dépendances principales...
 echo    (Cela peut prendre quelques minutes...)
 pip install -r requirements.txt --quiet
 if %errorlevel% neq 0 (
-    echo ❌ Erreur lors de l'installation des dépendances!
-    pause
-    exit /b 1
+    echo ⚠️ Installation silencieuse échouée, nouvelle tentative avec logs...
+    pip install -r requirements.txt
+    if %errorlevel% neq 0 (
+        echo ❌ Erreur lors de l'installation des dépendances!
+        pause
+        exit /b 1
+    )
 )
-echo ✅ Dépendances installées
+echo ✅ Dépendances principales installées
+
+:: Install spandrel extras (for model compatibility)
+echo.
+echo 🔧 Installation de spandrel avec extras (compatibilité modèles)...
+pip install "spandrel[opencv,pillow]" --quiet 2>nul
+if %errorlevel% neq 0 (
+    echo ℹ️ Extras non disponibles (non critique)
+)
+
+:: Verify critical packages
+echo.
+echo 🔍 Vérification des packages critiques...
+python -c "import torch; print(f'   ✅ torch {torch.__version__}')" 2>nul || echo    ❌ torch manquant!
+python -c "import torchvision; print(f'   ✅ torchvision {torchvision.__version__}')" 2>nul || echo    ❌ torchvision manquant!
+python -c "import gradio; print(f'   ✅ gradio {gradio.__version__}')" 2>nul || echo    ❌ gradio manquant!
+python -c "import spandrel; print(f'   ✅ spandrel {spandrel.__version__}')" 2>nul || echo    ❌ spandrel manquant!
+python -c "import PIL; print(f'   ✅ pillow {PIL.__version__}')" 2>nul || echo    ❌ pillow manquant!
+python -c "import numpy; print(f'   ✅ numpy {numpy.__version__}')" 2>nul || echo    ❌ numpy manquant!
+python -c "import cv2; print(f'   ✅ opencv {cv2.__version__}')" 2>nul || echo    ❌ opencv manquant!
+python -c "import tqdm; print(f'   ✅ tqdm {tqdm.__version__}')" 2>nul || echo    ❌ tqdm manquant!
+python -c "import safetensors; print(f'   ✅ safetensors (installed)')" 2>nul || echo    ❌ safetensors manquant!
+python -c "import einops; print(f'   ✅ einops (installed)')" 2>nul || echo    ❌ einops manquant!
+python -c "import requests; print(f'   ✅ requests {requests.__version__}')" 2>nul || echo    ❌ requests manquant!
+python -c "import gradio_imageslider; print(f'   ✅ gradio_imageslider (installed)')" 2>nul || echo    ❌ gradio_imageslider manquant!
 
 :: Create directories
 echo.
@@ -140,137 +173,137 @@ if not exist "output" (
     echo ℹ️ Dossier "output" existant
 )
 
-:: Download models from Upscale-Hub
+:: Download models from OpenModelDB / Upscale-Hub
 echo.
-echo 📥 Téléchargement des modèles AI depuis Upscale-Hub (https://github.com/Sirosky/Upscale-Hub)...
+echo 📥 Téléchargement des modèles AI...
 echo    (Les modèles peuvent aussi être ajoutés manuellement dans le dossier "models")
 echo.
 
 :: Model 1: AniToon Small (Fast, for old/low-quality anime)
 if not exist "models\2x_AniToon_RPLKSRS_242500.pth" (
-    echo [1/10] Téléchargement de AniToon Small... (~9 MB)
+    echo [1/9] Téléchargement de AniToon Small... (~9 MB)
     curl -L --progress-bar -o "models\2x_AniToon_RPLKSRS_242500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRS_242500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 1/10 téléchargé
+        echo ✅ Modèle 1/9 téléchargé
     )
 ) else (
-    echo ✅ [1/10] AniToon Small déjà présent
+    echo ✅ [1/9] AniToon Small déjà présent
 )
 
 :: Model 2: AniToon (Balanced, for old/low-quality anime)
 if not exist "models\2x_AniToon_RPLKSR_197500.pth" (
-    echo [2/10] Téléchargement de AniToon... (~30 MB)
+    echo [2/9] Téléchargement de AniToon... (~30 MB)
     curl -L --progress-bar -o "models\2x_AniToon_RPLKSR_197500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSR_197500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 2/10 téléchargé
+        echo ✅ Modèle 2/9 téléchargé
     )
 ) else (
-    echo ✅ [2/10] AniToon déjà présent
+    echo ✅ [2/9] AniToon déjà présent
 )
 
 :: Model 3: AniToon Large (Best quality, for old/low-quality anime)
 if not exist "models\2x_AniToon_RPLKSRL_280K.pth" (
-    echo [3/10] Téléchargement de AniToon Large... (~66 MB)
+    echo [3/9] Téléchargement de AniToon Large... (~66 MB)
     curl -L --progress-bar -o "models\2x_AniToon_RPLKSRL_280K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniToon/2x_AniToon_RPLKSRL_280K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 3/10 téléchargé
+        echo ✅ Modèle 3/9 téléchargé
     )
 ) else (
-    echo ✅ [3/10] AniToon Large déjà présent
+    echo ✅ [3/9] AniToon Large déjà présent
 )
 
 :: Model 4: Ani4K v2 UltraCompact (Very fast, for modern anime)
 if not exist "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" (
-    echo [4/10] Téléchargement de Ani4K v2 UltraCompact... (~20 MB)
+    echo [4/9] Téléchargement de Ani4K v2 UltraCompact... (~20 MB)
     curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_UltraCompact_105K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_UltraCompact_105K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 4/10 téléchargé
+        echo ✅ Modèle 4/9 téléchargé
     )
 ) else (
-    echo ✅ [4/10] Ani4K v2 UltraCompact déjà présent
+    echo ✅ [4/9] Ani4K v2 UltraCompact déjà présent
 )
 
 :: Model 5: Ani4K v2 Compact (RECOMMENDED - Balanced speed/quality)
 if not exist "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" (
-    echo [5/10] Téléchargement de Ani4K v2 Compact RECOMMANDÉ... (~30 MB)
+    echo [5/9] Téléchargement de Ani4K v2 Compact RECOMMANDE... (~30 MB)
     curl -L --progress-bar -o "models\2x_Ani4Kv2_G6i2_Compact_107500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/Ani4K-v2/2x_Ani4Kv2_G6i2_Compact_107500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 5/10 téléchargé - RECOMMANDÉ
+        echo ✅ Modèle 5/9 téléchargé - RECOMMANDE
     )
 ) else (
-    echo ✅ [5/10] Ani4K v2 Compact déjà présent - RECOMMANDÉ
+    echo ✅ [5/9] Ani4K v2 Compact déjà présent - RECOMMANDE
 )
 
 :: Model 6: AniSD AC (For SD anime - clean sources)
 if not exist "models\2x_AniSD_AC_RealPLKSR_127500.pth" (
-    echo [6/10] Téléchargement de AniSD AC... (~30 MB)
+    echo [6/9] Téléchargement de AniSD AC... (~30 MB)
     curl -L --progress-bar -o "models\2x_AniSD_AC_RealPLKSR_127500.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_AC_RealPLKSR_127500.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 6/10 téléchargé
+        echo ✅ Modèle 6/9 téléchargé
     )
 ) else (
-    echo ✅ [6/10] AniSD AC déjà présent
+    echo ✅ [6/9] AniSD AC déjà présent
 )
 
 :: Model 7: AniSD (For SD anime - general)
 if not exist "models\2x_AniSD_RealPLKSR_140K.pth" (
-    echo [7/10] Téléchargement de AniSD... (~30 MB)
+    echo [7/9] Téléchargement de AniSD... (~30 MB)
     curl -L --progress-bar -o "models\2x_AniSD_RealPLKSR_140K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniSD-RealPLKSR/2x_AniSD_RealPLKSR_140K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 7/10 téléchargé
+        echo ✅ Modèle 7/9 téléchargé
     )
 ) else (
-    echo ✅ [7/10] AniSD déjà présent
+    echo ✅ [7/9] AniSD déjà présent
 )
 
 :: Model 8: OpenProteus (Free alternative to Topaz Proteus)
 if not exist "models\2x_OpenProteus_Compact_i2_70K.pth" (
-    echo [8/10] Téléchargement de OpenProteus... (~30 MB)
+    echo [8/9] Téléchargement de OpenProteus... (~30 MB)
     curl -L --progress-bar -o "models\2x_OpenProteus_Compact_i2_70K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/OpenProteus/2x_OpenProteus_Compact_i2_70K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 8/10 téléchargé
+        echo ✅ Modèle 8/9 téléchargé
     )
 ) else (
-    echo ✅ [8/10] OpenProteus déjà présent
+    echo ✅ [8/9] OpenProteus déjà présent
 )
 
 :: Model 9: AniScale2 Compact (Fast general purpose)
 if not exist "models\2x_AniScale2S_Compact_i8_60K.pth" (
-    echo [9/10] Téléchargement de AniScale2 Compact... (~25 MB)
+    echo [9/9] Téléchargement de AniScale2 Compact... (~25 MB)
     curl -L --progress-bar -o "models\2x_AniScale2S_Compact_i8_60K.pth" "https://github.com/Sirosky/Upscale-Hub/releases/download/AniScale2/2x_AniScale2S_Compact_i8_60K.pth"
     if %errorlevel% neq 0 (
         echo ⚠️ Échec du téléchargement - le modèle sera téléchargé au premier lancement
     ) else (
-        echo ✅ Modèle 9/10 téléchargé
+        echo ✅ Modèle 9/9 téléchargé
     )
 ) else (
-    echo ✅ [9/10] AniScale2 Compact déjà présent
+    echo ✅ [9/9] AniScale2 Compact déjà présent
 )
 
 echo.
-echo ℹ️ Total: 10 modèles configurés depuis Upscale-Hub
+echo ℹ️ Total: 9 modèles configurés
 echo    Modèle recommandé: Ani4K v2 Compact (équilibre vitesse/qualité)
 
 :: Test CUDA availability
 echo.
 echo 🔍 Vérification de CUDA...
-python -c "import torch; print('✅ CUDA disponible:', torch.cuda.is_available()); print('   GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')" 2>nul
+python -c "import torch; cuda_ok = torch.cuda.is_available(); print('✅ CUDA disponible:', cuda_ok); print('   GPU:', torch.cuda.get_device_name(0) if cuda_ok else 'N/A'); print('   VRAM:', f'{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB' if cuda_ok else 'N/A')" 2>nul
 if %errorlevel% neq 0 (
     echo ⚠️ Impossible de vérifier CUDA - vérifiez que PyTorch est installé
 )
