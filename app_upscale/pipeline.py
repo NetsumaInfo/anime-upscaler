@@ -752,6 +752,15 @@ class UpscalingStage:
                 # Load image
                 try:
                     img = Image.open(frame_data.frame_path)
+
+                    # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+                    pre_downscale_height = self.upscale_params.get('pre_downscale_height', 0)
+                    if pre_downscale_height > 0:
+                        orig_width, orig_height = img.size
+                        if orig_height > pre_downscale_height:
+                            new_width = int(orig_width * (pre_downscale_height / orig_height))
+                            img = img.resize((new_width, pre_downscale_height), Image.Resampling.LANCZOS)
+
                     current_batch_images.append(img)
                     current_batch_frames.append(frame_data)
                 except Exception as e:

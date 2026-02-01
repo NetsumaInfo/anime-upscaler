@@ -58,44 +58,50 @@ def main():
 
     # Create Gradio app
     print("🎨 Creating interface...")
-    app = create_app(vram_manager=vram_manager, vram_info_text=vram_info_text)
+    app = create_app(vram_manager=vram_manager, vram_info_text=vram_info_text, recommended_workers=recommended_jobs)
 
     # Launch
     print("🌐 Starting server...")
 
-    # Try ports 7860-7869 until we find one available
-    def find_free_port(start_port=7860, end_port=7869):
-        """Find the first available port in the range"""
-        for port in range(start_port, end_port + 1):
+    # Try ports 7860-7880 with retry logic
+    def launch_with_dynamic_port(app, start_port=7860, max_attempts=20):
+        """Try to launch on available ports, retrying if a port is busy"""
+        for i in range(max_attempts):
+            port = start_port + i
             try:
+                # Check if port is available
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.bind(('', port))
-                    return port
-            except OSError:
+                    s.settimeout(1)
+                    result = s.connect_ex(('127.0.0.1', port))
+                    if result == 0:
+                        # Port is in use, try next
+                        print(f"⚠️ Port {port} is in use, trying next...")
+                        continue
+                
+                print(f"✅ Using port {port}")
+                app.launch(
+                    server_name="127.0.0.1",
+                    server_port=port,
+                    inbrowser=True,
+                    show_error=True,
+                    css=getattr(app, 'custom_css', None)
+                )
+                return True
+            except OSError as e:
+                print(f"⚠️ Port {port} failed: {e}, trying next...")
                 continue
-        return None
-
-    # Find available port
-    port = find_free_port()
-
-    # Launch Gradio server with automatic browser opening
-    if port is None:
-        print("⚠️ No free port found in range 7860-7869, using automatic port selection...")
+        
+        # If all ports failed, let Gradio choose automatically
+        print("⚠️ No free port found, using automatic port selection...")
         app.launch(
             server_name="127.0.0.1",
             inbrowser=True,
             show_error=True,
             css=getattr(app, 'custom_css', None)
         )
-    else:
-        print(f"✅ Using port {port}")
-        app.launch(
-            server_name="127.0.0.1",
-            server_port=port,
-            inbrowser=True,
-            show_error=True,
-            css=getattr(app, 'custom_css', None)
-        )
+        return True
+
+    launch_with_dynamic_port(app)
 
 
 if __name__ == "__main__":

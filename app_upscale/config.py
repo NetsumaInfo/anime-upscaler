@@ -119,6 +119,12 @@ TRANSLATIONS = {
         "output_format_title": "⚙️ Image Format & Échelle",
         "image_scale_label": "Échelle",
         "image_scale_info": "",
+        "pre_downscale_label": "Pré-réduction résolution",
+        "pre_downscale_info": "⚠️ Réduit la résolution AVANT l'upscaling AI pour accélérer le traitement et économiser la VRAM (préserve le ratio)",
+        "pre_downscale_original": "Original (aucune réduction)",
+        "pre_downscale_480p": "480p",
+        "pre_downscale_720p": "720p",
+        "pre_downscale_1080p": "1080p",
         "final_output_format": "Format",
         "jpeg_quality": "Qualité",
         "video_frame_format": "Format frames",
@@ -171,8 +177,8 @@ TRANSLATIONS = {
         "delete_input_frames_info": "",
         "delete_output_frames": "Supprimer frames sortie",
         "delete_output_frames_info": "",
-        "delete_extraction_folder": "Supprimer dossier extraction",
-        "delete_extraction_folder_info": "",
+        "delete_extraction_folder": "🗑️ Supprimer TOUS les dossiers",
+        "delete_extraction_folder_info": "Supprime le dossier d'extraction complet (frames entrée + sortie + tout)",
         "delete_mapping": "Supprimer JSON",
         "delete_mapping_info": "",
         "organize_videos": "📁 Dossier videos/ dédié",
@@ -210,6 +216,12 @@ TRANSLATIONS = {
         "output_format_title": "⚙️ Image Format & Scale",
         "image_scale_label": "Scale",
         "image_scale_info": "",
+        "pre_downscale_label": "Pre-Downscale Resolution",
+        "pre_downscale_info": "⚠️ Reduces resolution BEFORE AI upscaling to speed up processing and save VRAM (preserves aspect ratio)",
+        "pre_downscale_original": "Original (no reduction)",
+        "pre_downscale_480p": "480p",
+        "pre_downscale_720p": "720p",
+        "pre_downscale_1080p": "1080p",
         "final_output_format": "Format",
         "jpeg_quality": "Quality",
         "video_frame_format": "Frame format",
@@ -262,8 +274,8 @@ TRANSLATIONS = {
         "delete_input_frames_info": "",
         "delete_output_frames": "Delete output frames",
         "delete_output_frames_info": "",
-        "delete_extraction_folder": "Delete extraction folder",
-        "delete_extraction_folder_info": "",
+        "delete_extraction_folder": "🗑️ Delete ALL folders",
+        "delete_extraction_folder_info": "Deletes the entire extraction folder (input + output frames + everything)",
         "delete_mapping": "Delete JSON",
         "delete_mapping_info": "",
         "organize_videos": "📁 Dedicated videos/ folder",
@@ -308,24 +320,22 @@ except:
 # ============================================================================
 VIDEO_CODECS = {
     "H.264 (AVC)": {
-        "codec": "libx264",
+        "codec": "h264_nvenc",  # GPU encoding with NVENC (2-5x faster than libx264)
         "alpha_support": False,
         "profiles": {
-            "Main (Good)": {"preset": "medium", "crf": 20, "profile": "main"},
-            "High (Better)": {"preset": "slow", "crf": 17, "profile": "high"},
-            "Lossless (Best)": {"preset": "medium", "crf": 0, "profile": "high"},
+            "Main (Good)": {"preset": "p4", "cq": 20, "profile": "main"},
+            "High (Better)": {"preset": "p7", "cq": 17, "profile": "high"},
+            "Lossless (Best)": {"preset": "p4", "cq": 0, "profile": "high"},
         }
     },
     "H.265 (HEVC)": {
-        "codec": "libx265",
+        "codec": "hevc_nvenc",  # GPU encoding with NVENC (3-7x faster than libx265)
         "alpha_support": False,
         "profiles": {
-            "Main (8-bit)": {"preset": "medium", "crf": 20, "profile": "main", "pix_fmt": "yuv420p"},
-            "Main10 (10-bit)": {"preset": "medium", "crf": 20, "profile": "main10", "pix_fmt": "yuv420p10le"},
-            "Main12 (12-bit)": {"preset": "medium", "crf": 20, "profile": "main12", "pix_fmt": "yuv420p12le"},
-            "Main 4:4:4 10-bit": {"preset": "medium", "crf": 20, "profile": "main444-10", "pix_fmt": "yuv444p10le"},
-            "Main10 High Quality": {"preset": "slow", "crf": 16, "profile": "main10", "pix_fmt": "yuv420p10le"},
-            "Main10 Fast": {"preset": "fast", "crf": 24, "profile": "main10", "pix_fmt": "yuv420p10le"},
+            "Main (8-bit)": {"preset": "p4", "cq": 20, "profile": "main", "pix_fmt": "yuv420p"},
+            "Main10 (10-bit)": {"preset": "p4", "cq": 20, "profile": "main10", "pix_fmt": "yuv420p10le"},
+            "Main10 High Quality": {"preset": "p7", "cq": 16, "profile": "main10", "pix_fmt": "yuv420p10le"},
+            "Main10 Fast": {"preset": "p1", "cq": 24, "profile": "main10", "pix_fmt": "yuv420p10le"},
         }
     },
     "ProRes": {
@@ -393,6 +403,23 @@ DEFAULT_UPSCALING_SETTINGS = {
     "use_fp16": True,
     "image_target_scale": 2.0  # ×2 by default (preserves current behavior)
 }
+
+# ============================================================================
+# Pre-Downscale Configuration (v2.8+)
+# ============================================================================
+
+# Pré-downscale resolutions (height values, 0 = Original/no downscale)
+# Allows reducing resolution BEFORE AI upscaling to save VRAM and processing time
+# Example: 4K (3840×2160) → pre-downscale 1080p → upscale ×2 → 4K
+#          (instead of: 4K → upscale ×2 → 8K which is much slower)
+PRE_DOWNSCALE_OPTIONS = {
+    "Original": 0,      # No downscale (default)
+    "480p": 480,        # Downscale to 480px height (~854×480 for 16:9)
+    "720p": 720,        # Downscale to 720px height (1280×720 for 16:9)
+    "1080p": 1080       # Downscale to 1080px height (1920×1080 for 16:9)
+}
+
+DEFAULT_PRE_DOWNSCALE = "Original"  # No downscale by default (backward compatible)
 
 # ============================================================================
 # Default Models with Download URLs from Upscale-Hub

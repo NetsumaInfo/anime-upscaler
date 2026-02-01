@@ -30,6 +30,34 @@ from .video_processing import (
 )
 
 
+def _apply_pre_downscale(img, pre_downscale_height):
+    """
+    Apply pre-downscale to image if enabled and needed.
+
+    Args:
+        img: PIL Image to downscale
+        pre_downscale_height: Target height (0 = no downscale)
+
+    Returns:
+        Downscaled image (or original if not applicable)
+    """
+    if pre_downscale_height <= 0:
+        return img
+
+    orig_width, orig_height = img.size
+
+    # Only downscale if image is larger than target
+    if orig_height > pre_downscale_height:
+        # Calculate new width (preserve aspect ratio)
+        new_width = int(orig_width * (pre_downscale_height / orig_height))
+        new_height = pre_downscale_height
+
+        # Apply downscale with LANCZOS (high quality)
+        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+    return img
+
+
 def upscale_image_worker(img_path, model, settings, vram_manager, img_session, output_format, jpeg_quality, custom_name=None):
     """
     Worker function for parallel image upscaling.
@@ -63,6 +91,10 @@ def upscale_image_worker(img_path, model, settings, vram_manager, img_session, o
         try:
             # Execute GPU operations on dedicated stream
             img = Image.open(img_path)
+
+            # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+            img = _apply_pre_downscale(img, settings.get('pre_downscale_height', 0))
+
             result, orig = upscale_image(
                 img, model,
                 settings['preserve_alpha'],
@@ -148,6 +180,10 @@ def upscale_video_frame_worker(frame_path, model, settings, vram_manager, frame_
         try:
             # Execute GPU operations on dedicated stream
             img = Image.open(frame_path)
+
+            # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+            img = _apply_pre_downscale(img, settings.get('pre_downscale_height', 0))
+
             result, orig = upscale_image(
                 img, model,
                 settings['preserve_alpha'],
@@ -194,7 +230,7 @@ def _extract_gradio_value(value, default):
     return value if value is not None else default
 
 
-def process_batch(files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
+def process_batch(files, model, image_scale_radio, video_resolution_dropdown, pre_downscale_dropdown, output_format, jpeg_quality, precision_mode, codec_name, profile_name, fps, preserve_alpha, export_video, keep_audio, frame_format,
                  auto_delete_input_frames, auto_delete_output_frames, auto_delete_extraction_folder, auto_delete_frame_mapping, organize_videos_folder, organize_images_folder, skip_duplicate_frames,
                  use_auto_settings, tile_size, tile_overlap, sharpening, contrast, saturation,
                  video_naming_mode, video_suffix, video_custom_name, enable_parallel=True, parallel_workers=2, file_rename_textbox="", vram_manager=None, progress=None):
@@ -209,6 +245,21 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
     contrast = _extract_gradio_value(contrast, 1.0)
     saturation = _extract_gradio_value(saturation, 1.0)
     video_target_resolution = _extract_gradio_value(video_resolution_dropdown, 0)
+
+    # ============================================================================
+    # CONVERSION PRÉ-DOWNSCALE : UI Label → Height Value (v2.8+)
+    # ============================================================================
+    pre_downscale_height = 0  # Default: no downscale
+    pre_downscale_value = _extract_gradio_value(pre_downscale_dropdown, "Original")
+    if pre_downscale_value and isinstance(pre_downscale_value, str):
+        pre_downscale_lower = pre_downscale_value.lower()
+        if "480" in pre_downscale_lower:
+            pre_downscale_height = 480
+        elif "720" in pre_downscale_lower:
+            pre_downscale_height = 720
+        elif "1080" in pre_downscale_lower:
+            pre_downscale_height = 1080
+        # Sinon reste 0 (Original ou valeur inconnue)
 
     # Parse custom file names from textbox (one name per line)
     custom_file_names = []
@@ -308,6 +359,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
             'preserve_alpha': preserve_alpha,
             'use_fp16': use_fp16,
             'target_scale': image_target_scale,
+            'pre_downscale_height': pre_downscale_height,  # v2.8+
             'params': params
         }
 
@@ -423,6 +475,9 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                         if ENABLE_ASYNC_PRELOAD and idx + 1 < len(images):
                             future_images[idx+1] = prefetch_pool.submit(Image.open, images[idx+1])
 
+                        # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+                        img = _apply_pre_downscale(img, pre_downscale_height)
+
                         # GPU upscales current image WHILE CPU loads next image in background
                         result, orig = upscale_image(img, model, preserve_alpha,
                                                     output_format, jpeg_quality, use_fp16,
@@ -504,6 +559,10 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                         progress((idx + 1) / (len(images) + len(videos)), desc=f"Image {idx+1}/{len(images)}")
 
                     img = Image.open(img_path)
+
+                    # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+                    img = _apply_pre_downscale(img, pre_downscale_height)
+
                     result, orig = upscale_image(img, model, preserve_alpha,
                                                 output_format, jpeg_quality, use_fp16,
                                                 target_scale=image_target_scale,
@@ -631,6 +690,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     "sharpening": params.get("sharpening", 0),
                     "contrast": params.get("contrast", 1.0),
                     "saturation": params.get("saturation", 1.0),
+                    "pre_downscale_height": pre_downscale_height,  # v2.8+
                     "is_video_frame": True
                 }
 
@@ -735,6 +795,7 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                     'preserve_alpha': preserve_alpha,
                     'use_fp16': use_fp16,
                     'target_resolution': video_target_resolution,
+                    'pre_downscale_height': pre_downscale_height,  # v2.8+
                     'params': params
                 }
 
@@ -774,6 +835,10 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                         for frame_path in batch_paths:
                             try:
                                 img = Image.open(frame_path)
+
+                                # PRÉ-DOWNSCALE (v2.8+): Apply before upscaling if enabled
+                                img = _apply_pre_downscale(img, pre_downscale_height)
+
                                 loaded_frames.append(img.copy())
                                 loaded_orig.append(img.copy())
                                 loaded_paths.append(frame_path)
@@ -1076,8 +1141,8 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 if DEVICE == "cuda":
                     clear_gpu_memory()
 
-                # Auto-delete input frames if enabled
-                if auto_delete_input_frames:
+                # Auto-delete input frames if enabled (only if not deleting entire extraction folder)
+                if auto_delete_input_frames and not auto_delete_extraction_folder:
                     try:
                         shutil.rmtree(frames_in)
                         status_messages.append(f"🗑️ {vid_name}: Cleaned up input frames")
@@ -1144,8 +1209,8 @@ def process_batch(files, model, image_scale_radio, video_resolution_dropdown, ou
                 status_messages.append(f"⏱️ {vid_name}: Encoding time: {encoding_time:.1f}s ({total_frames / encoding_time:.2f} fps)")
                 download_files.append(str(video_output))
 
-                # Auto-delete upscaled frames after successful encoding (if enabled)
-                if auto_delete_output_frames:
+                # Auto-delete upscaled frames after successful encoding (only if not deleting entire extraction folder)
+                if auto_delete_output_frames and not auto_delete_extraction_folder:
                     try:
                         shutil.rmtree(frames_out)
                         status_messages.append(f"🗑️ {vid_name}: Cleaned up upscaled frames")

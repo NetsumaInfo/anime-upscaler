@@ -688,11 +688,13 @@ def encode_video(
 
     # Codec-specific settings
     if codec_name == "H.264 (AVC)":
+        # NVENC GPU Encoding (h264_nvenc)
         cmd.extend([
             "-c:v", codec,
-            "-preset", profile_config["preset"],
-            "-crf", str(profile_config["crf"]),
+            "-preset", profile_config["preset"],  # p1-p7 for NVENC
+            "-cq", str(profile_config["cq"]),     # Constant Quality mode (like CRF)
             "-profile:v", profile_config["profile"],
+            "-rc", "vbr",  # Variable bitrate mode for best quality
             # FILTER: Explicit Full→TV range conversion + RGB→YUV420P
             # scale filter does the range conversion: in_range=full (0-255) → out_range=limited (16-235)
             # This prevents artifacts on last frame and ensures proper color handling
@@ -702,11 +704,13 @@ def encode_video(
         cmd.extend(color_metadata)
 
     elif codec_name == "H.265 (HEVC)":
+        # NVENC GPU Encoding (hevc_nvenc)
         pix_fmt = profile_config.get("pix_fmt", "yuv420p")
         cmd.extend([
             "-c:v", codec,
-            "-preset", profile_config["preset"],
-            "-crf", str(profile_config["crf"]),
+            "-preset", profile_config["preset"],  # p1-p7 for NVENC
+            "-cq", str(profile_config["cq"]),     # Constant Quality mode (like CRF)
+            "-rc", "vbr",  # Variable bitrate mode for best quality
             "-tag:v", "hvc1",
         ])
 

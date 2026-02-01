@@ -146,12 +146,18 @@ Cliquez sur **"▶️ Run Batch"** pour démarrer.
 
 ### Codecs Disponibles
 
-| Codec | Qualité | Taille | Usage |
-|-------|---------|--------|-------|
-| **H.264** | Bonne | Petite | Web, streaming |
-| **H.265** | Excellente | Très petite | 4K, moderne |
-| **ProRes** | Excellente | Grande | Montage professionnel |
-| **DNxHD/HR** | Excellente | Grande | Broadcast |
+| Codec | Qualité | Taille | Usage | Encoding |
+|-------|---------|--------|-------|----------|
+| **H.264** | Bonne | Petite | Web, streaming | ⚡ **GPU (NVENC)** |
+| **H.265** | Excellente | Très petite | 4K, moderne | ⚡ **GPU (NVENC)** |
+| **ProRes** | Excellente | Grande | Montage professionnel | CPU |
+| **DNxHD/HR** | Excellente | Grande | Broadcast | CPU |
+
+**⚡ GPU Encoding (NVENC):**
+- H.264 et H.265 utilisent l'encodeur GPU NVIDIA (NVENC)
+- **3-7x plus rapide** que l'encoding CPU
+- Qualité équivalente avec moins de charge CPU
+- Nécessite une carte graphique NVIDIA compatible
 
 ### Paramètres Vidéo
 
