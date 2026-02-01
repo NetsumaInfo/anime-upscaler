@@ -130,8 +130,8 @@ def create_file_rename_list(files):
 
 def test_image_upscale(uploaded_files, model, image_scale_radio, video_resolution_dropdown, output_format, jpeg_quality,
                       precision_mode, preserve_alpha, use_auto_settings, tile_size, tile_overlap,
-                      sharpening, contrast, saturation):
-    """Quick test upscale on the first uploaded file (image or video first frame) for testing model"""
+                      sharpening, contrast, saturation, test_frame_number):
+    """Quick test upscale on the first uploaded file (image or video specific frame) for testing model"""
     # Convert precision mode to boolean or None
     if precision_mode == "None":
         use_fp16 = None  # None = No conversion, PyTorch decides
@@ -163,26 +163,30 @@ def test_image_upscale(uploaded_files, model, image_scale_radio, video_resolutio
     file_ext = Path(first_file).suffix.lower()
 
     try:
-        # Handle video files - extract first frame
+        # Handle video files - extract specified frame
         if file_ext in VIDEO_EXTENSIONS:
             # Create a persistent temp directory for the frame
             temp_dir = tempfile.mkdtemp()
             try:
-                # Extract only the first frame
-                temp_frame = os.path.join(temp_dir, "frame_00000.png")
+                # Extract the specified frame (convert from 1-indexed to 0-indexed)
+                frame_idx = int(test_frame_number) - 1
+                temp_frame = os.path.join(temp_dir, "frame_test.png")
+
+                # Use select filter to extract specific frame
                 result = subprocess.run([
                     "ffmpeg", "-i", first_file,
-                    "-vframes", "1",  # Extract only first frame
+                    "-vf", f"select=eq(n\\,{frame_idx})",
+                    "-vframes", "1",
                     "-pix_fmt", "rgba",
                     temp_frame, "-y"
-                ], capture_output=True, text=True)
+                ], capture_output=True, text=True, encoding='utf-8', errors='ignore')
 
                 if result.returncode != 0 or not os.path.exists(temp_frame):
                     shutil.rmtree(temp_dir, ignore_errors=True)
-                    return None, gr.update(visible=True, value=f"❌ Failed to extract first frame from video: {result.stderr}")
+                    return None, gr.update(visible=True, value=f"❌ Failed to extract frame {test_frame_number} from video: {result.stderr}")
 
                 img = Image.open(temp_frame)
-                source_type = "video (first frame)"
+                source_type = f"video (frame {int(test_frame_number)})"
             finally:
                 # Clean up temp directory after loading image
                 try:
@@ -504,6 +508,18 @@ def create_app(vram_manager=None, vram_info_text="", recommended_workers=3):
                         label=t['organize_images'],
                         value=True,
                         info=t['organize_images_info']
+                    )
+
+                # Frame selection for video test (collapsible, closed by default)
+                test_frame_title = "🎞️ Frame de Test" if state_module.current_language == "fr" else "🎞️ Test Frame Selection"
+                with gr.Accordion(test_frame_title, open=False):
+                    test_frame_slider = gr.Slider(
+                        minimum=1,
+                        maximum=5000,
+                        value=1,
+                        step=1,
+                        label=t['test_frame_number'],
+                        info=t['test_frame_number_info']
                     )
 
                 with gr.Row():
@@ -955,7 +971,7 @@ def create_app(vram_manager=None, vram_info_text="", recommended_workers=3):
             test_image_upscale,
             [file_input, model_select, image_scale_radio, video_resolution_dropdown, output_format_select, jpeg_quality_slider,
              precision_radio, preserve_alpha_check, use_auto_settings, tile_size_slider, tile_overlap_slider,
-             sharpening_slider, contrast_slider, saturation_slider],
+             sharpening_slider, contrast_slider, saturation_slider, test_frame_slider],
             [comparison_slider, test_status]
         )
 
