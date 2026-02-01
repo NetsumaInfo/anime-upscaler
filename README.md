@@ -1,6 +1,6 @@
-# 🎨 Anime Upscaler
+# 🎨 App Upscaler
 
-Application d'upscaling AI pour anime et dessins animés avec traitement batch et export vidéo professionnel.
+Interface universelle d'upscaling AI avec support de modèles personnalisés. Traitez vos images et vidéos par batch avec export vidéo professionnel.
 
 ![Version](https://img.shields.io/badge/version-2.7.1-blue)
 ![Python](https://img.shields.io/badge/python-3.10+-green)
@@ -11,7 +11,7 @@ Application d'upscaling AI pour anime et dessins animés avec traitement batch e
 
 ## 📥 Cloner le Projet
 
-Pour cloner ce projet, utilisez [git clone](https://git-scm.com/docs/git-clone) :
+Pour cloner ce projet, installer [git](https://git-scm.com/install/windows) :
 
 ```bash
 git clone https://github.com/NetsumaInfo/anime-upscaler.git
