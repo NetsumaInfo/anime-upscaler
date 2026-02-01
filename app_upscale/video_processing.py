@@ -476,7 +476,7 @@ def get_video_frame_count(video_path: str) -> Optional[int]:
             "-count_packets", "-show_entries", "stream=nb_read_packets",
             "-of", "csv=p=0",
             video_path
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         frame_count = int(result.stdout.strip())
         return frame_count
     except:
@@ -487,7 +487,7 @@ def get_video_frame_count(video_path: str) -> Optional[int]:
                 "-show_entries", "stream=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 video_path
-            ], capture_output=True, text=True)
+            ], capture_output=True, text=True, encoding='utf-8', errors='replace')
             duration = float(duration_result.stdout.strip())
             fps = get_video_fps(video_path)
             return int(duration * fps)
@@ -511,7 +511,7 @@ def get_video_fps(video_path: str) -> float:
             "-show_entries", "stream=r_frame_rate",
             "-of", "default=noprint_wrappers=1:nokey=1",
             video_path
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         fps_str = result.stdout.strip()
 
         # Parse fractional FPS (e.g., "30000/1001" for 29.97)
@@ -559,7 +559,7 @@ def extract_frames(video: str, out_dir: str) -> list:
         "-start_number", "0",
         os.path.join(out_dir, "frame_%05d.png"),
         "-y"
-    ], capture_output=True, text=True)
+    ], capture_output=True, text=True, encoding='utf-8', errors='replace')
 
     # Verify extraction
     extracted_frames = sorted([
@@ -772,7 +772,7 @@ def encode_video(
     cmd.append(output_path)
 
     # Run encoding
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
     if result.returncode != 0:
         return False, f"Encoding error: {result.stderr}"

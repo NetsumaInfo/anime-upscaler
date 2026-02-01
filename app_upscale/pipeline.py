@@ -207,7 +207,9 @@ class ExtractionStage:
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'  # Replace invalid UTF-8 chars instead of crashing
             )
 
             # Monitor directory for new frames
@@ -764,8 +766,19 @@ class UpscalingStage:
                     current_batch_images.append(img)
                     current_batch_frames.append(frame_data)
                 except Exception as e:
-                    print(f"⚠️ Preloader: Failed to load frame {frame_data.frame_index}: {e}")
+                    print(f"❌ CRITICAL: Preloader failed to load frame {frame_data.frame_index}: {e}")
                     frame_data.error = str(e)
+
+                    # CRITICAL FIX (Bug #8): Don't abandon failed frames - forward them with error flag
+                    # This ensures SavingStage can handle them (use original fallback or report error)
+                    frame_data.upscaled_image = None  # Mark as failed
+
+                    # Send immediately to save_queue (bypass batch processing)
+                    try:
+                        self.save_queue.put(frame_data, timeout=2.0)
+                    except queue.Full:
+                        print(f"⚠️ Warning: save_queue full, failed frame {frame_data.frame_index} may be lost")
+
                     continue
 
                 # Send batch when full
@@ -962,16 +975,31 @@ class SavingStage:
                     frame_data = self.upscaled_frames[frame_idx]
 
                     try:
-                        # Save unique frame
-                        save_frame_with_format(
-                            frame_data.upscaled_image,
-                            output_path.with_suffix(''),
-                            self.frame_format
-                        )
+                        # CRITICAL FIX (Bug #8): Handle frames that failed to load in preloader
+                        if frame_data.upscaled_image is None:
+                            # Frame failed to upscale - use original as fallback
+                            original_path = Path(self.temp_dir) / f"frame_{frame_idx:05d}.png"
+                            if original_path.exists():
+                                print(f"⚠️ Warning: Frame {frame_idx} failed to upscale, using original")
+                                img = Image.open(original_path)
+                                save_frame_with_format(img, output_path.with_suffix(''), self.frame_format)
+                                img.close()
+                                self.saved_unique_files[frame_idx] = output_path
+                                self.saved_frames += 1
+                            else:
+                                print(f"❌ CRITICAL: Frame {frame_idx} failed AND original missing")
+                                continue
+                        else:
+                            # Normal case: Save upscaled frame
+                            save_frame_with_format(
+                                frame_data.upscaled_image,
+                                output_path.with_suffix(''),
+                                self.frame_format
+                            )
 
-                        # Track saved file for duplicate copying
-                        self.saved_unique_files[frame_idx] = output_path
-                        self.saved_frames += 1
+                            # Track saved file for duplicate copying
+                            self.saved_unique_files[frame_idx] = output_path
+                            self.saved_frames += 1
 
                     except Exception as e:
                         print(f"⚠️ Warning: Failed to save frame {frame_idx}: {e}")
