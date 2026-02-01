@@ -9,6 +9,16 @@ Application d'upscaling AI pour anime et dessins animés avec traitement batch e
 
 ---
 
+## 📥 Cloner le Projet
+
+Pour cloner ce projet, utilisez [git clone](https://git-scm.com/docs/git-clone) :
+
+```bash
+git clone https://github.com/NetsumaInfo/anime-upscaler.git
+```
+
+---
+
 ## ⚡ Démarrage Rapide
 
 ### Installation (Windows)
